@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glass &amp; Light — Animation Renderer</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{
+    width:100%;height:100%;
+    overflow:hidden;
+    background:#000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  /* Viewport coordinates match the render dimension */
+  #viewport {
+    position:relative;
+    width:100%;
+    height:100%;
+    background:#000;
+    overflow:hidden;
+  }
+  canvas {
+    display:block;
+    width:100%;
+    height:100%;
+  }
+  /* Preview Controls (hidden during automated render) */
+  #controls{
+    position:fixed;
+    top:20px;left:50%;
+    transform:translateX(-50%);
+    background:rgba(5,12,20,0.85);
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,0.12);
+    border-radius:16px;
+    padding:6px;display:flex;gap:6px;
+    z-index:9999;
+    box-shadow:0 20px 50px rgba(0,0,0,0.85);
+    font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  #controls button{
+    background:rgba(255,255,255,0.08);color:#fff;border:none;
+    padding:8px 16px;border-radius:12px;cursor:pointer;
+    font-weight:600;font-size:12px;font-family:inherit;
+    transition:all 0.25s ease;
+  }
+  #controls button.active{
+    background:#17b5b9;
+    box-shadow:0 0 10px rgba(23,181,185,0.4);
+  }
+</style>
+</head>
+<body>
+
+<div id="viewport">
+  <!-- WebGL Canvas for Glass Refraction & Light Render -->
+  <canvas id="webgl-canvas"></canvas>
+</div>
+
+<div id="controls">
+  <button class="active" onclick="changeMode('diagonal')">Diagonal</button>
+  <button onclick="changeMode('curved')">Curved</button>
+  <button onclick="changeMode('glass_wave')">Glass Wave</button>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ═══════════════════════════════════════════════════════════
+     DEFAULTS
+     ═══════════════════════════════════════════════════════════ */
+  var DEF = {
+    width: 1920, height: 1080, fps: 30, duration: 10,
+    mode: 'diagonal',
+
+    /* Glass slat configuration */
+    bar_count: 28,
+    bar_width: 1.0,
+    bar_angle: 45,       // in degrees
+    displacement: 45,    // pixels of horizontal refraction displacement
+    glass_blur: 24,      // light orb blur radius
+    glass_opacity: 0.95,
+    glass_highlight: 0.45,
+    capsule_mask: 0.0,   // 0 = full screen, 1 = isolated capsule mask (Image 1 style)
+
+    /* Background lights */
+    color_cyan:   '#06b6d4',
+    color_blue:   '#2563eb',
+    color_amber:  '#f59e0b',
+    color_purple: '#581c87',
+
+    /* Light speed & size */
+    light_speed: 1.0,
+    light_size: 0.3,
+
+    /* Fiber optics */
+    fiber_count: 1400, fiber_spread: 0.65, fiber_length: 0.68,
+    fiber_glow: 1.5,
+    fiber_color1: '#8d4eff', fiber_color2: '#00e1ff',
+
+    /* Glass wave color preset */
+    wave_intensity: 1.2,
+    wave_color1: '#002699', wave_color2: '#5cd6ff', wave_color3: '#ffffff',
+
+    /* Post fx */
+    speed: 1.0,
+    vignette: 0.55,
+    grain: 0.08,
+
+    /* CSV Column Mappings fallbacks */
+    glass_color1: '',
+    glass_color2: '',
+    bg_color1: '',
+    bg_color2: '',
+    light_color1: '',
+    light_color2: '',
+    bg_style: ''
+  };
+
+  /* ═══════════════════════════════════════════════════════════
+     STATE
+     ═══════════════════════════════════════════════════════════ */
+  var cfg;
+  var frame = 0, total = 0;
+  var controlled = false, rafId = null;
+
+  /* ═══════════════════════════════════════════════════════════
+     COLOUR & MATH HELPERS
+     ═══════════════════════════════════════════════════════════ */
+  function hx(s){
+    if(!s)return{r:0,g:0,b:0};
+    s=s.replace('#','');
+    if(s.length===3)s=s[0]+s[0]+s[1]+s[1]+s[2]+s[2];
+    return{r:parseInt(s.substring(0,2),16),g:parseInt(s.substring(2,4),16),b:parseInt(s.substring(4,6),16)};
+  }
+  function lr(a,b,t){t=Math.max(0,Math.min(1,t));return{r:Math.round(a.r+(b.r-a.r)*t),g:Math.round(a.g+(b.g-a.g)*t),b:Math.round(a.b+(b.b-a.b)*t)};}
+  function ra(c,a){return'rgba('+c.r+','+c.g+','+c.b+','+a+')';}
+  function fr(n){var s=Math.sin(n*127.1+n*n*0.0037)*43758.5453;return s-Math.floor(s);}
+
+  /* DOM and Canvas Contexts */
+  var glCanvas, gl, program;
+  var fibCanvas, fibCtx;
+
+  /* WebGL shaders */
+  var vsSource = `
+    attribute vec2 position;
+    varying vec2 uv;
+    void main() {
+      uv = position * 0.5 + 0.5;
+      gl_Position = vec4(position, 0.0, 1.0);
+    }
+  `;
+
+  var fsSource = `
+    precision highp float;
+    varying vec2 uv;
+
+    // Uniforms
+    uniform vec2 u_resolution;
+    uniform float u_time;
+    uniform int u_mode;
+
+    // Slat Config
+    uniform float u_bar_count;
+    uniform float u_bar_width;
+    uniform float u_bar_angle;
+    uniform float u_displacement;
+    uniform float u_glass_blur;
+    uniform float u_glass_highlight;
+    uniform float u_capsule_mask;
+
+    // Colors
+    uniform vec3 u_col_cyan;
+    uniform vec3 u_col_blue;
+    uniform vec3 u_col_amber;
+    uniform vec3 u_col_purple;
+
+    // Wave Mode Colors
+    uniform vec3 u_wave_c1;
+    uniform vec3 u_wave_c2;
+    uniform vec3 u_wave_c3;
+    uniform float u_wave_intensity;
+
+    // Post FX
+    uniform float u_vignette;
+    uniform float u_light_size;
+    uniform float u_light_speed;
+
+    // Smooth background light generation (Metaballs matching reference)
+    vec3 generateBackground(vec2 coord, float t) {
+      // Dynamic moving gradient centers matching reference perfectly
+      vec2 p1 = vec2(0.5 + 0.22 * cos(t * 0.6), 0.5 + 0.15 * sin(t * 0.5));
+      vec2 p2 = vec2(0.46 + 0.18 * sin(t * 0.4), 0.52 + 0.2 * cos(t * 0.7));
+      vec2 p3 = vec2(0.6 + 0.25 * cos(t * 0.8), 0.48 + 0.12 * sin(t * 0.5));
+
+      float d1 = length(coord - p1);
+      float d2 = length(coord - p2);
+      float d3 = length(coord - p3);
+
+      // Metaball contributions (smoothstep radial ramps)
+      float w1 = smoothstep(0.4, 0.0, d1);
+      float w2 = smoothstep(0.5, 0.0, d2);
+      float w3 = smoothstep(0.35, 0.0, d3);
+
+      vec3 col = u_col_purple; // Grounding base fill color
+      col += u_col_cyan * w1 * 0.95;
+      col += u_col_blue * w2 * 0.90;
+      col += u_col_amber * w3 * 0.85;
+
+      return clamp(col, 0.0, 1.0);
+    }
+
+    vec3 getWaveBackground(vec2 coord, float t) {
+      vec3 wc1 = u_wave_c1;
+      vec3 wc2 = u_wave_c2;
+      vec3 wc3 = u_wave_c3;
+      vec3 bg = vec3(0.0, 0.005, 0.08);
+
+      for (int k = 0; k < 4; k++) {
+        float fk = float(k);
+        float phase = t + fk * 1.5708;
+        float yVal = 0.5 + sin(coord.x * 1.8 + phase) * 0.2 + cos(coord.x * 1.2 - phase) * 0.06;
+        float dist = abs(coord.y - yVal);
+        vec3 gradColor = mix(wc1, wc2, coord.x);
+        if (k == 2) gradColor = mix(wc2, wc3, coord.y);
+        float intensity = exp(-dist * dist / (0.15 * 0.15)) * (0.35 + fk * 0.15);
+        bg += gradColor * intensity;
+      }
+      return bg;
+    }
+
+    // 5-tap Gaussian cross-blur with built-in chromatic aberration dispersion
+    vec3 sampleBlurredBackgroundWithDispersion(vec2 baseUV, vec2 refrDir, float dispMag, float blurRadius, float evolution, int mode) {
+      vec3 total = vec3(0.0);
+      float weight = 0.0;
+
+      // 5-tap weights: Center (0.36), Up/Down/Left/Right (0.16 each)
+      float weights[5];
+      weights[0] = 0.36;
+      weights[1] = 0.16;
+      weights[2] = 0.16;
+      weights[3] = 0.16;
+      weights[4] = 0.16;
+
+      vec2 offsets[5];
+      offsets[0] = vec2(0.0, 0.0);
+      offsets[1] = vec2(-1.0, 0.0);
+      offsets[2] = vec2(1.0, 0.0);
+      offsets[3] = vec2(0.0, -1.0);
+      offsets[4] = vec2(0.0, 1.0);
+
+      float pixelSize = blurRadius / u_resolution.x;
+
+      for (int i = 0; i < 5; i++) {
+        vec2 offset = offsets[i] * pixelSize;
+        float w = weights[i];
+
+        // Apply channel dispersion shifts at each tap offset
+        vec2 sampleUVR = baseUV + offset + refrDir * (dispMag * 0.94);
+        vec2 sampleUVG = baseUV + offset + refrDir * dispMag;
+        vec2 sampleUVB = baseUV + offset + refrDir * (dispMag * 1.06);
+
+        float rVal, gVal, bVal;
+
+        if (mode == 4) {
+          rVal = getWaveBackground(sampleUVR, u_time).r;
+          gVal = getWaveBackground(sampleUVG, u_time).g;
+          bVal = getWaveBackground(sampleUVB, u_time).b;
+        } else if (mode == 2) {
+          float spotX = 0.5 + sin(u_time * u_light_speed * 6.283185) * 0.38;
+          vec2 spotPos = vec2(spotX, 0.5);
+          
+          float dR = length(sampleUVR - spotPos);
+          float dG = length(sampleUVG - spotPos);
+          float dB = length(sampleUVB - spotPos);
+
+          vec3 spotColor = mix(u_col_cyan, u_col_blue, 0.4);
+          vec3 baseAmb = mix(u_col_amber, u_col_purple, 0.5) * 0.06;
+
+          rVal = (spotColor * 0.8 * exp(-dR * dR / 0.08) + baseAmb).r;
+          gVal = (spotColor * 0.8 * exp(-dG * dG / 0.08) + baseAmb).g;
+          bVal = (spotColor * 0.8 * exp(-dB * dB / 0.08) + baseAmb).b;
+        } else {
+          rVal = generateBackground(sampleUVR, u_time).r;
+          gVal = generateBackground(sampleUVG, u_time).g;
+          bVal = generateBackground(sampleUVB, u_time).b;
+        }
+
+        total += vec3(rVal, gVal, bVal) * w;
+        weight += w;
+      }
+
+      return total / weight;
+    }
+
+    void main() {
+      vec2 res = u_resolution;
+      float t = u_time * 6.283185;
+      float evolution = u_time * 60.0;
+
+      float localX = 0.0;
+      float angleRad = u_bar_angle * 0.0174533;
+      
+      vec2 refrDir = vec2(1.0, 0.0);
+      
+      // Calculate rotation mapping
+      vec2 rotUV = uv;
+      if (u_mode == 0) { // Diagonal reeds
+        rotUV.x = (uv.x - 0.5) * cos(angleRad) - (uv.y - 0.5) * sin(angleRad) + 0.5;
+        rotUV.y = (uv.x - 0.5) * sin(angleRad) + (uv.y - 0.5) * cos(angleRad) + 0.5;
+        refrDir = vec2(cos(angleRad + 1.5708), sin(angleRad + 1.5708));
+      }
+      else if (u_mode == 1) { // Curved reeds
+        float amp = 0.038;
+        float phase = uv.y * 3.14159 + t * 0.6;
+        float curve = sin(phase) * amp;
+        rotUV.x = uv.x - curve;
+      }
+
+      // Compute repeat slat coordinate
+      float slatCoord = rotUV.x * u_bar_count;
+      localX = fract(slatCoord);
+
+      // Cylindrical lens refraction offset displacement (from reference)
+      float dispMag = sin((localX - 0.5) * 3.14159) * (u_displacement / res.x);
+
+      // Single call to the optimized cross-blur dispersion sample routine
+      vec3 bgColor = sampleBlurredBackgroundWithDispersion(uv, refrDir, dispMag, u_glass_blur, evolution, u_mode);
+
+      vec3 pixelColor = bgColor;
+
+      if (u_mode != 3) {
+        // Slat shading and shadow edges matching reference perfectly
+        float shadow = smoothstep(0.0, 0.25, localX) * smoothstep(1.0, 0.75, localX);
+        pixelColor *= (0.8 + 0.2 * shadow);
+
+        // Specular highlight line matching reference perfectly
+        float spec = pow(max(0.0, 1.0 - abs(localX - 0.5) * 2.0), 3.0) * u_glass_highlight;
+        pixelColor += vec3(spec);
+      }
+
+      if (u_capsule_mask > 0.0) {
+        vec2 capCenter = vec2(uv.x - 0.5, (uv.y - 0.5) * (res.y / res.x));
+        float radius = length(capCenter);
+        float maskVal = smoothstep(0.24, 0.16, radius);
+        pixelColor = mix(pixelColor * 0.02, pixelColor, mix(1.0, maskVal, u_capsule_mask));
+      }
+
+      float vignetteDist = length(uv - 0.5);
+      float vig = smoothstep(0.82, 0.30, vignetteDist);
+      pixelColor = mix(pixelColor * 0.06, pixelColor, vig);
+
+      gl_FragColor = vec4(pixelColor, 1.0);
+    }
+  `;
+
+  /* ═══════════════════════════════════════════════════════════
+     WEBGL UTILITIES
+     ═══════════════════════════════════════════════════════════ */
+  function createShader(gl, type, source) {
+    var shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(shader));
+      gl.deleteShader(shader);
+      return null;
+    }
+    return shader;
+  }
+
+  function initWebGL() {
+    glCanvas = document.getElementById('webgl-canvas');
+    gl = glCanvas.getContext('webgl', { antialias: true, alpha: false, preserveDrawingBuffer: true });
+    if (!gl) {
+      alert("WebGL not supported");
+      return;
+    }
+
+    var vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+    var fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+    program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error(gl.getProgramInfoLog(program));
+      return;
+    }
+
+    // Set up full-screen plane buffer
+    var vertices = new Float32Array([
+      -1, -1,   1, -1,  -1,  1,
+      -1,  1,   1, -1,   1,  1
+    ]);
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    var positionLoc = gl.getAttribLocation(program, 'position');
+    gl.enableVertexAttribArray(positionLoc);
+    gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+
+    gl.useProgram(program);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     COLOR HELPER FOR WEBGL UNIFORMS
+     ═══════════════════════════════════════════════════════════ */
+  function setUniformColor(name, hexColor) {
+    var rgb = hx(hexColor);
+    var loc = gl.getUniformLocation(program, name);
+    gl.uniform3f(loc, rgb.r / 255.0, rgb.g / 255.0, rgb.b / 255.0);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     RENDER LOGIC
+     ═══════════════════════════════════════════════════════════ */
+  function render() {
+    var p = frame / total;
+    var w = cfg.width, h = cfg.height;
+
+    // Re-verify viewport bounds matching configuration
+    if (glCanvas.width !== w || glCanvas.height !== h) {
+      glCanvas.width = w; glCanvas.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+
+    // Determine numerical mode index for Shader
+    var modeIndex = 0;
+    if (cfg.mode === 'diagonal')     modeIndex = 0;
+    else if (cfg.mode === 'curved')  modeIndex = 1;
+    else if (cfg.mode === 'light_reveal') modeIndex = 2;
+    else if (cfg.mode === 'glass_wave')   modeIndex = 4;
+
+    gl.useProgram(program);
+
+    // Pass general Uniform variables to shader
+    gl.uniform2f(gl.getUniformLocation(program, 'u_resolution'), w, h);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_time'), p);
+    gl.uniform1i(gl.getUniformLocation(program, 'u_mode'), modeIndex);
+
+    // Pass slat geometry metrics
+    gl.uniform1f(gl.getUniformLocation(program, 'u_bar_count'), cfg.bar_count);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_bar_width'), cfg.bar_width);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_bar_angle'), cfg.bar_angle);
+    var dispVal = cfg.displacement;
+    if (dispVal === undefined || dispVal === null || dispVal === 45) {
+      if (cfg.glass_opacity !== undefined && cfg.glass_opacity !== null) {
+        dispVal = cfg.glass_opacity * 300.0;
+      } else {
+        dispVal = 45.0;
+      }
+    }
+    gl.uniform1f(gl.getUniformLocation(program, 'u_displacement'), dispVal);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_glass_blur'), cfg.glass_blur);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_glass_highlight'), cfg.glass_highlight);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_capsule_mask'), cfg.capsule_mask);
+
+    // Colors resolved dynamically from CSV mapping
+    var colCyan   = cfg.glass_color1 || cfg.color_cyan;
+    var colBlue   = cfg.glass_color2 || cfg.color_blue;
+    var colAmber  = cfg.bg_color2     || cfg.color_amber;
+    var colPurple = cfg.bg_color1     || cfg.color_purple;
+
+    if (cfg.mode === 'light_reveal') {
+      if (cfg.light_color1) colCyan = cfg.light_color1;
+      if (cfg.light_color2) colBlue = cfg.light_color2;
+    }
+
+    setUniformColor('u_col_cyan',   colCyan);
+    setUniformColor('u_col_blue',   colBlue);
+    setUniformColor('u_col_amber',  colAmber);
+    setUniformColor('u_col_purple', colPurple);
+
+    // Wave Mode Colors
+    setUniformColor('u_wave_c1', cfg.wave_color1);
+    setUniformColor('u_wave_c2', cfg.wave_color2);
+    setUniformColor('u_wave_c3', cfg.wave_color3);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_wave_intensity'), cfg.wave_intensity);
+
+    // Dynamics & FX
+    gl.uniform1f(gl.getUniformLocation(program, 'u_vignette'), cfg.vignette);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_grain'), cfg.grain);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), cfg.light_size);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_light_speed'), cfg.light_speed);
+
+    // Draw full-screen quad in WebGL
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     CONFIG MERGE
+     ═══════════════════════════════════════════════════════════ */
+  function mc(src){
+    var o={};var k=Object.keys(DEF);
+    for(var i=0;i<k.length;i++) o[k[i]]=(src&&src[k[i]]!==undefined)?src[k[i]]:DEF[k[i]];
+    return o;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     BOOT
+     ═══════════════════════════════════════════════════════════ */
+  function boot() {
+    initWebGL();
+
+    cfg = mc(window.ANIMATION_CONFIG);
+    total = Math.round(cfg.fps * cfg.duration);
+    frame = 0;
+
+    render();
+
+    window.animationReady = true;
+    window.renderComplete = false;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     WINDOW API
+     ═══════════════════════════════════════════════════════════ */
+  window.animationReady = false;
+  window.renderComplete = false;
+
+  window.stepFrame = function(){
+    if(frame >= total){ window.renderComplete = true; return false; }
+    render();
+    frame++;
+    if(frame >= total){ window.renderComplete = true; return false; }
+    return true;
+  };
+
+  window.getProgress = function(){
+    return { frame: frame, total: total, done: frame >= total };
+  };
+
+  window.resetRenderer = function(nc){
+    controlled = true;
+    var ctrl = document.getElementById('controls');
+    if(ctrl) ctrl.style.display = 'none';
+    if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+
+    cfg = mc(nc);
+    total = Math.round(cfg.fps * cfg.duration);
+    frame = 0;
+
+    render();
+
+    window.animationReady = true;
+    window.renderComplete = false;
+  };
+
+  /* ═══════════════════════════════════════════════════════════
+     AUTO-PLAY (browser preview)
+     ═══════════════════════════════════════════════════════════ */
+  function autoPlay(){
+    if(controlled) return;
+    render();
+    frame++;
+    if(frame >= total) frame = 0;
+    rafId = requestAnimationFrame(autoPlay);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     LIVE PREVIEW PRESET TOGGLES
+     ═══════════════════════════════════════════════════════════ */
+  window.changeMode = function(mode){
+    var presets = {
+      diagonal: {
+        mode:'diagonal', bar_count:24, bar_width:1.0, bar_angle:45,
+        displacement: 45, glass_blur:24, glass_highlight:0.45, capsule_mask:0.0
+      },
+      curved: {
+        mode:'curved', bar_count:20, bar_width:1.0, bar_angle:0,
+        displacement: 45, glass_blur:24, glass_highlight:0.45, capsule_mask:0.0
+      },
+      light_reveal: {
+        // Automatically activate Capsule Mask for Light Reveal mode (Image 1 style)
+        mode:'light_reveal', bar_count:28, bar_width:0.9, bar_angle:0,
+        displacement: 60, glass_blur:28, glass_highlight:0.55, capsule_mask:1.0,
+        light_speed:1.0, light_size:0.35,
+        color_cyan:'#00e1ff', color_blue:'#1d4ed8',
+        color_amber:'#fb923c', color_purple:'#2e1065'
+      },
+      fiber_optics: {
+        mode:'fiber_optics', fiber_count:1400,
+        fiber_spread:0.65, fiber_length:0.68,
+        fiber_glow:1.5, fiber_color1:'#8d4eff', fiber_color2:'#00e1ff',
+        speed:0.8
+      },
+      glass_wave: {
+        mode:'glass_wave', bar_count:45, bar_angle:0,
+        displacement: 40, wave_intensity:1.2,
+        wave_color1:'#002699', wave_color2:'#5cd6ff', wave_color3:'#ffffff',
+        glass_blur:24, glass_highlight:0.45, capsule_mask:0.0
+      }
+    };
+
+    var overrides = presets[mode] || presets.diagonal;
+
+    var btns = document.querySelectorAll('#controls button');
+    btns.forEach(function(b){
+      var txt = b.innerText.toLowerCase().replace(/ /g,'_');
+      if(txt === mode){
+        b.classList.add('active');
+      } else {
+        b.classList.remove('active');
+      }
+    });
+
+    cfg = mc(overrides);
+    frame = 0;
+    render();
+  };
+
+  window.addEventListener('DOMContentLoaded', function(){
+    boot();
+    if(!controlled) autoPlay();
+  });
+
+})();
+</script>
+</body>
+</html>

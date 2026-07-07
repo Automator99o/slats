@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  renderer:
+    build: .
+    volumes:
+      - ./output:/app/output           # rendered videos go here
+      - ./batch.csv:/app/batch.csv     # hot-swap without rebuild
+      - ./tmp:/app/tmp                 # local frames storage during render
+    shm_size: 1gb                       # required for Chromium
+    cap_add:
+      - SYS_ADMIN                       # required for Playwright sandbox
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: "no"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# USAGE EXAMPLES
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# Build & render full batch as MP4:
+#   docker compose up --build
+#
+# Preview first clip in browser before rendering:
+#   docker compose run renderer python engine.py --preview
+#
+# Resume from clip 10:
+#   docker compose run renderer python engine.py --start-from 10
+#
+# Render as MOV (ProRes):
+#   docker compose run renderer python engine.py --format mov
+#
+# Render specific batch file:
+#   docker compose run renderer python engine.py --batch batch.csv --format mp4
+#
+# Rebuild after editing animation.html or engine.py:
+#   docker compose build --no-cache
+#
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
