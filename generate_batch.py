@@ -71,8 +71,8 @@ MODES = ["diagonal", "curved", "glass_wave"]
 def main():
     rows = []
     
-    # Generate 50 unique rows
-    for i in range(1, 51):
+    # Generate 30 unique rows
+    for i in range(1, 31):
         mode = MODES[(i - 1) % len(MODES)]
         palette = PALETTES[(i - 1) % len(PALETTES)]
         
@@ -96,7 +96,7 @@ def main():
         displacement = int(35 + ((i * 9) % 76))  # 35 to 110
         glass_blur = int(16 + ((i * 4) % 25))  # 16 to 40
         glass_highlight = round(0.35 + ((i * 0.04) % 0.4), 2)  # 0.35 to 0.75
-        speed = round(0.5 + ((i * 0.08) % 1.1), 2)  # 0.5 to 1.6
+        speed = (i % 3) + 1  # Integer speeds 1, 2, or 3 for perfect seamless looping velocity
         
         # All clips rendered in 4K UHD for premium stock asset quality
         width, height = 3840, 2160
@@ -165,7 +165,7 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
         
-    print(f"SUCCESS: Generated 50 highly unique stock-ready reeded glass clips inside batch.csv!")
+    print(f"SUCCESS: Generated 30 highly unique stock-ready reeded glass clips inside batch.csv!")
 
 if __name__ == "__main__":
     main()

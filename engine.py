@@ -15,7 +15,10 @@ import subprocess
 import sys
 import tempfile
 import webbrowser
+import time
+import base64
 from pathlib import Path
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -139,11 +142,102 @@ def preview_clip(config: dict, html_path: str):
     webbrowser.open(url)
 
     input("\n  Press ENTER to start rendering (Ctrl+C to cancel)...\n")
-
     try:
         os.remove(preview_path)
     except OSError:
         pass
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  STUDIO SERVER
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+class StudioHTTPRequestHandler(SimpleHTTPRequestHandler):
+    def do_GET(self):
+        # Serve animation.html for index requests
+        if self.path in ("/", "/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            with open("animation.html", "rb") as f:
+                self.wfile.write(f.read())
+        else:
+            super().do_GET()
+
+    def do_POST(self):
+        if self.path == "/api/render":
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            payload = json.loads(post_data.decode('utf-8'))
+            
+            config = payload.get("config", {})
+            bg_image_base64 = payload.get("bg_image_base64")
+            
+            # Save uploaded base64 background image if provided
+            if bg_image_base64:
+                if "," in bg_image_base64:
+                    bg_image_base64 = bg_image_base64.split(",")[1]
+                img_data = base64.b64decode(bg_image_base64)
+                
+                os.makedirs("./tmp", exist_ok=True)
+                bg_path = "./tmp/studio_upload.png"
+                with open(bg_path, "wb") as f:
+                    f.write(img_data)
+                
+                config["bg_image_url"] = "tmp/studio_upload.png"
+            else:
+                config["bg_image_url"] = ""
+
+            # Standardize render specs to 4K H.264 @ 100 Mbps
+            config["width"] = 3840
+            config["height"] = 2160
+            config["fps"] = 30
+            config["duration"] = 10.0
+            
+            clip_id = "studio_render_" + str(int(time.time()))
+            output_file = os.path.join("./output", f"{clip_id}.mp4")
+            os.makedirs("./output", exist_ok=True)
+            
+            print(f"\n[Studio] Starting 4K render for: {clip_id}")
+            
+            from playwright.sync_api import sync_playwright
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--allow-file-access-from-files"],
+                    )
+                    page = browser.new_page()
+                    html_path = os.path.abspath("animation.html")
+                    
+                    ok = render_clip(page, config, clip_id, output_file, "mp4", html_path)
+                    browser.close()
+                
+                if ok:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "status": "success",
+                        "file": output_file
+                    }).encode('utf-8'))
+                else:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "status": "error",
+                        "message": "Render sequence failed"
+                    }).encode('utf-8'))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "error",
+                    "message": str(e)
+                }).encode('utf-8'))
+        else:
+            self.send_response(404)
+            self.end_headers()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -211,7 +305,22 @@ def main():
                         help="Skip the first N rows (resume support)")
     parser.add_argument("--format", choices=["mp4", "mov"], default=None,
                         help="Output format: mp4 or mov (prompts if omitted)")
+    parser.add_argument("--studio", action="store_true", help="Launch the interactive Refraction Studio server")
+    parser.add_argument("--port", type=int, default=5100, help="Server port for studio mode (default: 5100)")
     args = parser.parse_args()
+
+    # ── Launch Studio Server if active ──
+    if args.studio:
+        port = args.port
+        server_address = ('', port)
+        httpd = HTTPServer(server_address, StudioHTTPRequestHandler)
+        print(f"\n🚀 Nexus Refraction Studio is running at: http://localhost:{port}")
+        print("Press Ctrl+C to stop the studio server.\n")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nShutting down server.")
+        sys.exit(0)
 
     # ── Read batch CSV ──
     batch_path = os.path.abspath(args.batch)
@@ -277,7 +386,7 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+            args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--allow-file-access-from-files"],
         )
         page = browser.new_page()
 

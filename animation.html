@@ -27,29 +27,129 @@
     width:100%;
     height:100%;
   }
-  /* Preview Controls (hidden during automated render) */
-  #controls{
-    position:fixed;
-    top:20px;left:50%;
-    transform:translateX(-50%);
-    background:rgba(5,12,20,0.85);
-    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-    border:1px solid rgba(255,255,255,0.12);
-    border-radius:16px;
-    padding:6px;display:flex;gap:6px;
-    z-index:9999;
-    box-shadow:0 20px 50px rgba(0,0,0,0.85);
-    font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  #editor-sidebar {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    bottom: 20px;
+    width: 330px;
+    background: rgba(10, 15, 26, 0.72);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    z-index: 1000;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+    color: #f3f4f6;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
-  #controls button{
-    background:rgba(255,255,255,0.08);color:#fff;border:none;
-    padding:8px 16px;border-radius:12px;cursor:pointer;
-    font-weight:600;font-size:12px;font-family:inherit;
-    transition:all 0.25s ease;
+  
+  .header {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    color: #17b5b9;
+    margin-bottom: 6px;
+    text-shadow: 0 0 10px rgba(23, 181, 185, 0.3);
   }
-  #controls button.active{
-    background:#17b5b9;
-    box-shadow:0 0 10px rgba(23,181,185,0.4);
+  
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .control-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #9ca3af;
+    display: flex;
+    justify-content: space-between;
+  }
+  
+  .control-group label span {
+    color: #ffffff;
+    font-weight: 700;
+  }
+  
+  .control-group input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.12);
+    outline: none;
+  }
+  
+  .control-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #17b5b9;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(23, 181, 185, 0.6);
+    transition: transform 0.15s ease;
+  }
+  
+  .control-group input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.25);
+  }
+  
+  .control-group select {
+    background: rgba(10, 15, 26, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #ffffff;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+  }
+  
+  .upload-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    padding: 10px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+  .upload-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  
+  .render-btn {
+    background: linear-gradient(135deg, #17b5b9 0%, #108e92 100%);
+    border: none;
+    color: #ffffff;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(23, 181, 185, 0.35);
+    transition: all 0.25s ease;
+    text-align: center;
+    margin-top: 10px;
+  }
+  .render-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(23, 181, 185, 0.5);
+  }
+  .render-btn:disabled {
+    background: #4b5563;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
   }
 </style>
 </head>
@@ -60,10 +160,52 @@
   <canvas id="webgl-canvas"></canvas>
 </div>
 
-<div id="controls">
-  <button class="active" onclick="changeMode('diagonal')">Diagonal</button>
-  <button onclick="changeMode('curved')">Curved</button>
-  <button onclick="changeMode('glass_wave')">Glass Wave</button>
+<div id="editor-sidebar">
+  <div class="header">NEXUS REFRACTION STUDIO</div>
+  
+  <div class="control-group">
+    <label>Slat Style</label>
+    <select id="select-mode" onchange="updateVal('mode', this.value)">
+      <option value="diagonal">Diagonal Slats</option>
+      <option value="curved">Curved Slats</option>
+      <option value="glass_wave">Glass Wave</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label>Slat Count <span id="val-bar-count">28</span></label>
+    <input type="range" id="slider-bar-count" min="8" max="64" value="28" oninput="updateVal('bar_count', parseInt(this.value))">
+  </div>
+  
+  <div class="control-group">
+    <label>Slat Angle <span id="val-bar-angle">45</span>°</label>
+    <input type="range" id="slider-bar-angle" min="-90" max="90" value="45" oninput="updateVal('bar_angle', parseInt(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Slat Refraction <span id="val-displacement">45</span></label>
+    <input type="range" id="slider-displacement" min="10" max="150" value="45" oninput="updateVal('displacement', parseInt(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Glass Blur <span id="val-glass-blur">24</span></label>
+    <input type="range" id="slider-glass-blur" min="5" max="80" value="24" oninput="updateVal('glass_blur', parseInt(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Glass Highlight <span id="val-glass-highlight">0.45</span></label>
+    <input type="range" id="slider-glass-highlight" min="0.0" max="1.5" step="0.05" value="0.45" oninput="updateVal('glass_highlight', parseFloat(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Custom Background Image</label>
+    <button class="upload-btn" onclick="document.getElementById('bg-upload').click()">Choose Image</button>
+    <input type="file" id="bg-upload" accept="image/*" style="display:none" onchange="handleImageUpload(this)">
+  </div>
+
+  <div class="control-group" style="margin-top:auto">
+    <button id="render-btn" class="render-btn" onclick="triggerRender()">Render Video (4K)</button>
+  </div>
 </div>
 
 <script>
@@ -127,6 +269,23 @@
   var cfg;
   var frame = 0, total = 0;
   var controlled = false, rafId = null;
+  var bgTexture = null;
+  var useBgTexture = false;
+  var currentImageBase64 = null;
+
+  function updateBgTexture(imageElement) {
+    if (!gl) return;
+    if (!bgTexture) {
+      bgTexture = gl.createTexture();
+    }
+    gl.bindTexture(gl.TEXTURE_2D, bgTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imageElement);
+    useBgTexture = true;
+  }
 
   /* ═══════════════════════════════════════════════════════════
      COLOUR & MATH HELPERS
@@ -189,9 +348,19 @@
     uniform float u_vignette;
     uniform float u_light_size;
     uniform float u_light_speed;
+    uniform float u_speed;
+
+    // Custom image texture
+    uniform bool u_use_texture;
+    uniform sampler2D u_background_texture;
 
     // Smooth background light generation (Metaballs matching reference)
     vec3 generateBackground(vec2 coord, float t) {
+      if (u_use_texture) {
+        // Sample the custom uploaded background texture
+        return texture2D(u_background_texture, vec2(coord.x, 1.0 - coord.y)).rgb;
+      }
+
       // Dynamic moving gradient centers matching reference perfectly
       vec2 p1 = vec2(0.5 + 0.22 * cos(t * 0.6), 0.5 + 0.15 * sin(t * 0.5));
       vec2 p2 = vec2(0.46 + 0.18 * sin(t * 0.4), 0.52 + 0.2 * cos(t * 0.7));
@@ -267,9 +436,9 @@
         float rVal, gVal, bVal;
 
         if (mode == 4) {
-          rVal = getWaveBackground(sampleUVR, u_time).r;
-          gVal = getWaveBackground(sampleUVG, u_time).g;
-          bVal = getWaveBackground(sampleUVB, u_time).b;
+          rVal = getWaveBackground(sampleUVR, evolution).r;
+          gVal = getWaveBackground(sampleUVG, evolution).g;
+          bVal = getWaveBackground(sampleUVB, evolution).b;
         } else if (mode == 2) {
           float spotX = 0.5 + sin(u_time * u_light_speed * 6.283185) * 0.38;
           vec2 spotPos = vec2(spotX, 0.5);
@@ -285,9 +454,9 @@
           gVal = (spotColor * 0.8 * exp(-dG * dG / 0.08) + baseAmb).g;
           bVal = (spotColor * 0.8 * exp(-dB * dB / 0.08) + baseAmb).b;
         } else {
-          rVal = generateBackground(sampleUVR, u_time).r;
-          gVal = generateBackground(sampleUVG, u_time).g;
-          bVal = generateBackground(sampleUVB, u_time).b;
+          rVal = generateBackground(sampleUVR, evolution).r;
+          gVal = generateBackground(sampleUVG, evolution).g;
+          bVal = generateBackground(sampleUVB, evolution).b;
         }
 
         total += vec3(rVal, gVal, bVal) * w;
@@ -299,8 +468,8 @@
 
     void main() {
       vec2 res = u_resolution;
-      float t = u_time * 6.283185;
-      float evolution = u_time * 60.0;
+      float t = u_time * 6.283185 * u_speed;
+      float evolution = t;
 
       float localX = 0.0;
       float angleRad = u_bar_angle * 0.0174533;
@@ -445,6 +614,14 @@
     gl.uniform1f(gl.getUniformLocation(program, 'u_time'), p);
     gl.uniform1i(gl.getUniformLocation(program, 'u_mode'), modeIndex);
 
+    // Pass custom texture bindings to shader
+    gl.uniform1i(gl.getUniformLocation(program, 'u_use_texture'), useBgTexture ? 1 : 0);
+    if (useBgTexture && bgTexture) {
+      gl.activeTexture(gl.TEXTURE_0);
+      gl.bindTexture(gl.TEXTURE_2D, bgTexture);
+      gl.uniform1i(gl.getUniformLocation(program, 'u_background_texture'), 0);
+    }
+
     // Pass slat geometry metrics
     gl.uniform1f(gl.getUniformLocation(program, 'u_bar_count'), cfg.bar_count);
     gl.uniform1f(gl.getUniformLocation(program, 'u_bar_width'), cfg.bar_width);
@@ -489,6 +666,9 @@
     gl.uniform1f(gl.getUniformLocation(program, 'u_grain'), cfg.grain);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), cfg.light_size);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_speed'), cfg.light_speed);
+    // Round speed to nearest integer to guarantee a perfect, seamless loop start-to-end
+    var loopSpeed = Math.max(1.0, Math.round(cfg.speed || 1.0));
+    gl.uniform1f(gl.getUniformLocation(program, 'u_speed'), loopSpeed);
 
     // Draw full-screen quad in WebGL
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -513,10 +693,32 @@
     total = Math.round(cfg.fps * cfg.duration);
     frame = 0;
 
-    render();
+    // Load inputs to match sliders on preview boot
+    syncSlidersToConfig();
 
-    window.animationReady = true;
-    window.renderComplete = false;
+    if (cfg.bg_image_url) {
+      var img = new Image();
+      if (cfg.bg_image_url.indexOf("http") === 0) {
+        img.crossOrigin = "anonymous";
+      }
+      img.onload = function() {
+        updateBgTexture(img);
+        render();
+        window.animationReady = true;
+        window.renderComplete = false;
+        if (!controlled) {
+          rafId = requestAnimationFrame(autoPlay);
+        }
+      };
+      img.src = cfg.bg_image_url;
+    } else {
+      render();
+      window.animationReady = true;
+      window.renderComplete = false;
+      if (!controlled) {
+        rafId = requestAnimationFrame(autoPlay);
+      }
+    }
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -539,18 +741,35 @@
 
   window.resetRenderer = function(nc){
     controlled = true;
-    var ctrl = document.getElementById('controls');
-    if(ctrl) ctrl.style.display = 'none';
-    if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    
+    // Hide editor sidebar during automated rendering
+    var sidebar = document.getElementById('editor-sidebar');
+    if (sidebar) sidebar.style.display = 'none';
+    
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
 
     cfg = mc(nc);
     total = Math.round(cfg.fps * cfg.duration);
     frame = 0;
+    window.animationReady = false;
 
-    render();
-
-    window.animationReady = true;
-    window.renderComplete = false;
+    if (cfg.bg_image_url) {
+      var img = new Image();
+      if (cfg.bg_image_url.indexOf("http") === 0) {
+        img.crossOrigin = "anonymous";
+      }
+      img.onload = function() {
+        updateBgTexture(img);
+        render();
+        window.animationReady = true;
+        window.renderComplete = false;
+      };
+      img.src = cfg.bg_image_url;
+    } else {
+      render();
+      window.animationReady = true;
+      window.renderComplete = false;
+    }
   };
 
   /* ═══════════════════════════════════════════════════════════
@@ -565,61 +784,96 @@
   }
 
   /* ═══════════════════════════════════════════════════════════
-     LIVE PREVIEW PRESET TOGGLES
+     STUDIO INTERACTION ENGINE
      ═══════════════════════════════════════════════════════════ */
-  window.changeMode = function(mode){
-    var presets = {
-      diagonal: {
-        mode:'diagonal', bar_count:24, bar_width:1.0, bar_angle:45,
-        displacement: 45, glass_blur:24, glass_highlight:0.45, capsule_mask:0.0
-      },
-      curved: {
-        mode:'curved', bar_count:20, bar_width:1.0, bar_angle:0,
-        displacement: 45, glass_blur:24, glass_highlight:0.45, capsule_mask:0.0
-      },
-      light_reveal: {
-        // Automatically activate Capsule Mask for Light Reveal mode (Image 1 style)
-        mode:'light_reveal', bar_count:28, bar_width:0.9, bar_angle:0,
-        displacement: 60, glass_blur:28, glass_highlight:0.55, capsule_mask:1.0,
-        light_speed:1.0, light_size:0.35,
-        color_cyan:'#00e1ff', color_blue:'#1d4ed8',
-        color_amber:'#fb923c', color_purple:'#2e1065'
-      },
-      fiber_optics: {
-        mode:'fiber_optics', fiber_count:1400,
-        fiber_spread:0.65, fiber_length:0.68,
-        fiber_glow:1.5, fiber_color1:'#8d4eff', fiber_color2:'#00e1ff',
-        speed:0.8
-      },
-      glass_wave: {
-        mode:'glass_wave', bar_count:45, bar_angle:0,
-        displacement: 40, wave_intensity:1.2,
-        wave_color1:'#002699', wave_color2:'#5cd6ff', wave_color3:'#ffffff',
-        glass_blur:24, glass_highlight:0.45, capsule_mask:0.0
-      }
-    };
+  function syncSlidersToConfig() {
+    if (controlled) return;
+    document.getElementById('select-mode').value = cfg.mode;
+    document.getElementById('slider-bar-count').value = cfg.bar_count;
+    document.getElementById('val-bar-count').innerText = cfg.bar_count;
+    document.getElementById('slider-bar-angle').value = cfg.bar_angle;
+    document.getElementById('val-bar-angle').innerText = cfg.bar_angle;
+    document.getElementById('slider-displacement').value = cfg.displacement;
+    document.getElementById('val-displacement').innerText = cfg.displacement;
+    document.getElementById('slider-glass-blur').value = cfg.glass_blur;
+    document.getElementById('val-glass-blur').innerText = cfg.glass_blur;
+    document.getElementById('slider-glass-highlight').value = cfg.glass_highlight;
+    document.getElementById('val-glass-highlight').innerText = cfg.glass_highlight;
+  }
 
-    var overrides = presets[mode] || presets.diagonal;
-
-    var btns = document.querySelectorAll('#controls button');
-    btns.forEach(function(b){
-      var txt = b.innerText.toLowerCase().replace(/ /g,'_');
-      if(txt === mode){
-        b.classList.add('active');
-      } else {
-        b.classList.remove('active');
-      }
-    });
-
-    cfg = mc(overrides);
+  window.updateVal = function(key, val) {
+    cfg[key] = val;
+    
+    // Update label text in UI
+    if (key === 'bar_count') document.getElementById('val-bar-count').innerText = val;
+    if (key === 'bar_angle') document.getElementById('val-bar-angle').innerText = val;
+    if (key === 'displacement') document.getElementById('val-displacement').innerText = val;
+    if (key === 'glass_blur') document.getElementById('val-glass-blur').innerText = val;
+    if (key === 'glass_highlight') document.getElementById('val-glass-highlight').innerText = val;
+    
     frame = 0;
     render();
+  };
+
+  window.handleImageUpload = function(input) {
+    if (input.files && input.files[0]) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        currentImageBase64 = e.target.result;
+        var img = new Image();
+        img.onload = function() {
+          updateBgTexture(img);
+          frame = 0;
+          render();
+        };
+        img.src = currentImageBase64;
+      };
+      reader.readAsDataURL(input.files[0]);
+    }
+  };
+
+  window.triggerRender = function() {
+    var btn = document.getElementById('render-btn');
+    btn.innerText = "Rendering Video (4K) ...";
+    btn.disabled = true;
+
+    // Send active configuration settings & uploaded base64 background image
+    var payload = {
+      config: cfg,
+      bg_image_base64: useBgTexture ? currentImageBase64 : null
+    };
+
+    fetch('/api/render', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.status === "success") {
+        alert("Success! 4K video rendered:\n" + data.file);
+      } else {
+        alert("Render Error: " + data.message);
+      }
+    })
+    .catch(function(err) {
+      console.error(err);
+      alert("HTTP connection error: " + err);
+    })
+    .finally(function() {
+      btn.innerText = "Render Video (4K)";
+      btn.disabled = false;
+    });
   };
 
   window.addEventListener('DOMContentLoaded', function(){
     boot();
     if(!controlled) autoPlay();
   });
+
+  window.syncSlidersToConfig = syncSlidersToConfig;
 
 })();
 </script>

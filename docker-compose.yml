@@ -3,15 +3,20 @@ version: "3.8"
 services:
   renderer:
     build: .
+    command: ["--studio", "--port", "5100"]
     volumes:
       - ./output:/app/output           # rendered videos go here
       - ./batch.csv:/app/batch.csv     # hot-swap without rebuild
       - ./tmp:/app/tmp                 # local frames storage during render
+      - ./engine.py:/app/engine.py     # hot-swap code changes
+      - ./animation.html:/app/animation.html # hot-swap page changes
     shm_size: 1gb                       # required for Chromium
     cap_add:
       - SYS_ADMIN                       # required for Playwright sandbox
     environment:
       - PYTHONUNBUFFERED=1
+    ports:
+      - "5100:5100"
     restart: "no"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
