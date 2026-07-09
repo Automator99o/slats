@@ -219,6 +219,18 @@
   </div>
 
   <div class="control-group">
+    <label>Light Reveal Path</label>
+    <select id="select-light-path" onchange="updateVal('light_path', parseInt(this.value))">
+      <option value="0">Horizontal Sweep</option>
+      <option value="1">Vertical Sweep</option>
+      <option value="2">Circular Orbit</option>
+      <option value="3">Diagonal Scan</option>
+      <option value="4">Infinity Loop (8)</option>
+      <option value="5">Zigzag Wave</option>
+    </select>
+  </div>
+
+  <div class="control-group">
     <label>Vignette Shadow <span id="val-vignette">0.55</span></label>
     <input type="range" id="slider-vignette" min="0.0" max="1.0" step="0.05" value="0.55" oninput="updateVal('vignette', parseFloat(this.value))">
   </div>
@@ -279,6 +291,7 @@
     /* Light speed & size */
     light_speed: 1.0,
     light_size: 0.3,
+    light_path: 0,
 
     /* Fiber optics */
     fiber_count: 1400, fiber_spread: 0.65, fiber_length: 0.68,
@@ -392,6 +405,7 @@
     uniform float u_light_size;
     uniform float u_light_speed;
     uniform float u_speed;
+    uniform int u_light_path;
 
     // Custom image texture
     uniform bool u_use_texture;
@@ -516,8 +530,23 @@
             bVal = getWaveBackground(sampleUVB, evolution).b;
           }
         } else if (mode == 2) {
-          float spotX = 0.5 + sin(u_time * u_light_speed * 6.283185) * 0.38;
-          vec2 spotPos = vec2(spotX, 0.5);
+          float angle = u_time * 6.283185 * u_light_speed;
+          vec2 spotPos = vec2(0.5);
+          
+          if (u_light_path == 0) { // Horizontal Sweep
+            spotPos = vec2(0.5 + sin(angle) * 0.38, 0.5);
+          } else if (u_light_path == 1) { // Vertical Sweep
+            spotPos = vec2(0.5, 0.5 + sin(angle) * 0.38);
+          } else if (u_light_path == 2) { // Circular Orbit
+            spotPos = vec2(0.5 + cos(angle) * 0.35, 0.5 + sin(angle) * 0.35);
+          } else if (u_light_path == 3) { // Diagonal Scan
+            float dScan = sin(angle);
+            spotPos = vec2(0.5 + dScan * 0.35, 0.5 + dScan * 0.35);
+          } else if (u_light_path == 4) { // Infinity Loop (Figure 8)
+            spotPos = vec2(0.5 + sin(angle) * 0.35, 0.5 + sin(angle * 2.0) * 0.18);
+          } else if (u_light_path == 5) { // Zigzag Wave Sweep
+            spotPos = vec2(0.5 + sin(angle) * 0.38, 0.5 + cos(angle * 4.0) * 0.2);
+          }
           
           float dR = length(sampleUVR - spotPos);
           float dG = length(sampleUVG - spotPos);
@@ -768,6 +797,7 @@
     gl.uniform1f(gl.getUniformLocation(program, 'u_grain'), cfg.grain);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), cfg.light_size);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_speed'), cfg.light_speed);
+    gl.uniform1i(gl.getUniformLocation(program, 'u_light_path'), cfg.light_path);
     // Round speed to nearest integer to guarantee a perfect, seamless loop start-to-end
     var loopSpeed = Math.max(1.0, Math.round(cfg.speed || 1.0));
     gl.uniform1f(gl.getUniformLocation(program, 'u_speed'), loopSpeed);
@@ -934,6 +964,9 @@
     var gapPercent = Math.round((1.0 - (cfg.bar_width || 1.0)) * 100);
     document.getElementById('slider-bar-gap').value = gapPercent;
     document.getElementById('val-bar-gap').innerText = gapPercent + '%';
+
+    // Sync light path select
+    document.getElementById('select-light-path').value = cfg.light_path || 0;
   }
 
   window.updateSlatGap = function(val) {
