@@ -214,8 +214,8 @@
   </div>
 
   <div class="control-group">
-    <label>Light Beam Size <span id="val-light-size">0.08</span></label>
-    <input type="range" id="slider-light-size" min="0.01" max="0.5" step="0.01" value="0.08" oninput="updateVal('light_size', parseFloat(this.value))">
+    <label>Light Beam Size <span id="val-light-size">300</span>px</label>
+    <input type="range" id="slider-light-size" min="50" max="1200" step="10" value="300" oninput="updateVal('light_size', parseInt(this.value))">
   </div>
 
   <div class="control-group">
@@ -290,7 +290,7 @@
 
     /* Light speed & size */
     light_speed: 1.0,
-    light_size: 0.3,
+    light_size: 300,
     light_path: 0,
 
     /* Fiber optics */
@@ -796,7 +796,12 @@
     // Dynamics & FX
     gl.uniform1f(gl.getUniformLocation(program, 'u_vignette'), cfg.vignette);
     gl.uniform1f(gl.getUniformLocation(program, 'u_grain'), cfg.grain);
-    gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), cfg.light_size);
+    var sizePx = cfg.light_size || 300.0;
+    if (sizePx <= 1.0) {
+      sizePx = sizePx * w;
+    }
+    var R_norm = sizePx / w;
+    gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), R_norm * R_norm);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_speed'), cfg.light_speed);
     gl.uniform1i(gl.getUniformLocation(program, 'u_light_path'), cfg.light_path);
     // Round speed to nearest integer to guarantee a perfect, seamless loop start-to-end
@@ -948,8 +953,12 @@
     document.getElementById('val-speed').innerText = cfg.speed;
     document.getElementById('slider-light-speed').value = cfg.light_speed;
     document.getElementById('val-light-speed').innerText = cfg.light_speed;
-    document.getElementById('slider-light-size').value = cfg.light_size;
-    document.getElementById('val-light-size').innerText = cfg.light_size;
+    var syncSizePx = cfg.light_size || 300;
+    if (syncSizePx <= 1.0) {
+      syncSizePx = Math.round(syncSizePx * (cfg.width || 1920));
+    }
+    document.getElementById('slider-light-size').value = syncSizePx;
+    document.getElementById('val-light-size').innerText = syncSizePx;
     document.getElementById('slider-vignette').value = cfg.vignette;
     document.getElementById('val-vignette').innerText = cfg.vignette;
     document.getElementById('slider-grain').value = cfg.grain;
