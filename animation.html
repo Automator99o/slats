@@ -169,6 +169,7 @@
       <option value="diagonal">Diagonal Slats</option>
       <option value="curved">Curved Slats</option>
       <option value="glass_wave">Glass Wave</option>
+      <option value="light_reveal">Light Reveal</option>
     </select>
   </div>
 
@@ -195,6 +196,41 @@
   <div class="control-group">
     <label>Glass Highlight <span id="val-glass-highlight">0.45</span></label>
     <input type="range" id="slider-glass-highlight" min="0.0" max="1.5" step="0.05" value="0.45" oninput="updateVal('glass_highlight', parseFloat(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Movement Speed <span id="val-speed">1</span></label>
+    <input type="range" id="slider-speed" min="1" max="5" step="1" value="1" oninput="updateVal('speed', parseInt(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Light Scan Speed <span id="val-light-speed">1.0</span></label>
+    <input type="range" id="slider-light-speed" min="0.1" max="3.0" step="0.1" value="1.0" oninput="updateVal('light_speed', parseFloat(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Light Beam Size <span id="val-light-size">0.08</span></label>
+    <input type="range" id="slider-light-size" min="0.01" max="0.5" step="0.01" value="0.08" oninput="updateVal('light_size', parseFloat(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Vignette Shadow <span id="val-vignette">0.55</span></label>
+    <input type="range" id="slider-vignette" min="0.0" max="1.0" step="0.05" value="0.55" oninput="updateVal('vignette', parseFloat(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Film Grain <span id="val-grain">0.08</span></label>
+    <input type="range" id="slider-grain" min="0.0" max="0.25" step="0.01" value="0.08" oninput="updateVal('grain', parseFloat(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Bg Image Blur <span id="val-bg-blur">0</span></label>
+    <input type="range" id="slider-bg-blur" min="0" max="25" step="1" value="0" oninput="updateVal('bg_blur', parseInt(this.value))">
+  </div>
+
+  <div class="control-group">
+    <label>Bg Image Skew <span id="val-bg-skew">0.00</span></label>
+    <input type="range" id="slider-bg-skew" min="-1.50" max="1.50" step="0.05" value="0.00" oninput="updateVal('bg_skew', parseFloat(this.value))">
   </div>
 
   <div class="control-group">
@@ -252,6 +288,8 @@
     speed: 1.0,
     vignette: 0.55,
     grain: 0.08,
+    bg_blur: 0.0,
+    bg_skew: 0.0,
 
     /* CSV Column Mappings fallbacks */
     glass_color1: '',
@@ -353,12 +391,39 @@
     // Custom image texture
     uniform bool u_use_texture;
     uniform sampler2D u_background_texture;
+    uniform float u_bg_blur;
+    uniform float u_bg_skew;
+
+    // Helper to sample background texture with custom skew and blur parameters
+    vec3 sampleBackgroundTexture(vec2 coord) {
+      // Apply skew transformation centered at (0.5, 0.5)
+      vec2 tc = coord;
+      tc.x = (tc.x - 0.5) + (tc.y - 0.5) * u_bg_skew + 0.5;
+      
+      // Bound checking
+      tc = clamp(tc, 0.0, 1.0);
+      
+      if (u_bg_blur <= 0.0) {
+        return texture2D(u_background_texture, vec2(tc.x, 1.0 - tc.y)).rgb;
+      }
+      
+      // Dynamic cross-shaped blur kernel on the background texture
+      vec3 col = vec3(0.0);
+      float stepSize = u_bg_blur / 1000.0;
+      
+      col += texture2D(u_background_texture, vec2(tc.x, 1.0 - tc.y)).rgb * 0.36;
+      col += texture2D(u_background_texture, vec2(tc.x - stepSize, 1.0 - tc.y)).rgb * 0.16;
+      col += texture2D(u_background_texture, vec2(tc.x + stepSize, 1.0 - tc.y)).rgb * 0.16;
+      col += texture2D(u_background_texture, vec2(tc.x, 1.0 - (tc.y - stepSize))).rgb * 0.16;
+      col += texture2D(u_background_texture, vec2(tc.x, 1.0 - (tc.y + stepSize))).rgb * 0.16;
+      
+      return col;
+    }
 
     // Smooth background light generation (Metaballs matching reference)
     vec3 generateBackground(vec2 coord, float t) {
       if (u_use_texture) {
-        // Sample the custom uploaded background texture
-        return texture2D(u_background_texture, vec2(coord.x, 1.0 - coord.y)).rgb;
+        return sampleBackgroundTexture(coord);
       }
 
       // Dynamic moving gradient centers matching reference perfectly
@@ -436,9 +501,15 @@
         float rVal, gVal, bVal;
 
         if (mode == 4) {
-          rVal = getWaveBackground(sampleUVR, evolution).r;
-          gVal = getWaveBackground(sampleUVG, evolution).g;
-          bVal = getWaveBackground(sampleUVB, evolution).b;
+          if (u_use_texture) {
+            rVal = sampleBackgroundTexture(sampleUVR).r;
+            gVal = sampleBackgroundTexture(sampleUVG).g;
+            bVal = sampleBackgroundTexture(sampleUVB).b;
+          } else {
+            rVal = getWaveBackground(sampleUVR, evolution).r;
+            gVal = getWaveBackground(sampleUVG, evolution).g;
+            bVal = getWaveBackground(sampleUVB, evolution).b;
+          }
         } else if (mode == 2) {
           float spotX = 0.5 + sin(u_time * u_light_speed * 6.283185) * 0.38;
           vec2 spotPos = vec2(spotX, 0.5);
@@ -450,9 +521,18 @@
           vec3 spotColor = mix(u_col_cyan, u_col_blue, 0.4);
           vec3 baseAmb = mix(u_col_amber, u_col_purple, 0.5) * 0.06;
 
-          rVal = (spotColor * 0.8 * exp(-dR * dR / 0.08) + baseAmb).r;
-          gVal = (spotColor * 0.8 * exp(-dG * dG / 0.08) + baseAmb).g;
-          bVal = (spotColor * 0.8 * exp(-dB * dB / 0.08) + baseAmb).b;
+          if (u_use_texture) {
+            vec3 texR = sampleBackgroundTexture(sampleUVR);
+            vec3 texG = sampleBackgroundTexture(sampleUVG);
+            vec3 texB = sampleBackgroundTexture(sampleUVB);
+            rVal = (texR * 0.8 * exp(-dR * dR / u_light_size) + texR * 0.06).r;
+            gVal = (texG * 0.8 * exp(-dG * dG / u_light_size) + texG * 0.06).g;
+            bVal = (texB * 0.8 * exp(-dB * dB / u_light_size) + texB * 0.06).b;
+          } else {
+            rVal = (spotColor * 0.8 * exp(-dR * dR / u_light_size) + baseAmb).r;
+            gVal = (spotColor * 0.8 * exp(-dG * dG / u_light_size) + baseAmb).g;
+            bVal = (spotColor * 0.8 * exp(-dB * dB / u_light_size) + baseAmb).b;
+          }
         } else {
           rVal = generateBackground(sampleUVR, evolution).r;
           gVal = generateBackground(sampleUVG, evolution).g;
@@ -616,6 +696,8 @@
 
     // Pass custom texture bindings to shader
     gl.uniform1i(gl.getUniformLocation(program, 'u_use_texture'), useBgTexture ? 1 : 0);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_bg_blur'), cfg.bg_blur);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_bg_skew'), cfg.bg_skew);
     if (useBgTexture && bgTexture) {
       gl.activeTexture(gl.TEXTURE_0);
       gl.bindTexture(gl.TEXTURE_2D, bgTexture);
@@ -799,6 +881,24 @@
     document.getElementById('val-glass-blur').innerText = cfg.glass_blur;
     document.getElementById('slider-glass-highlight').value = cfg.glass_highlight;
     document.getElementById('val-glass-highlight').innerText = cfg.glass_highlight;
+    
+    // Sync new controls
+    document.getElementById('slider-speed').value = cfg.speed;
+    document.getElementById('val-speed').innerText = cfg.speed;
+    document.getElementById('slider-light-speed').value = cfg.light_speed;
+    document.getElementById('val-light-speed').innerText = cfg.light_speed;
+    document.getElementById('slider-light-size').value = cfg.light_size;
+    document.getElementById('val-light-size').innerText = cfg.light_size;
+    document.getElementById('slider-vignette').value = cfg.vignette;
+    document.getElementById('val-vignette').innerText = cfg.vignette;
+    document.getElementById('slider-grain').value = cfg.grain;
+    document.getElementById('val-grain').innerText = cfg.grain;
+    
+    // Sync blur and skew
+    document.getElementById('slider-bg-blur').value = cfg.bg_blur;
+    document.getElementById('val-bg-blur').innerText = cfg.bg_blur;
+    document.getElementById('slider-bg-skew').value = cfg.bg_skew;
+    document.getElementById('val-bg-skew').innerText = cfg.bg_skew;
   }
 
   window.updateVal = function(key, val) {
@@ -810,6 +910,15 @@
     if (key === 'displacement') document.getElementById('val-displacement').innerText = val;
     if (key === 'glass_blur') document.getElementById('val-glass-blur').innerText = val;
     if (key === 'glass_highlight') document.getElementById('val-glass-highlight').innerText = val;
+    
+    // Label updates for new variables
+    if (key === 'speed') document.getElementById('val-speed').innerText = val;
+    if (key === 'light_speed') document.getElementById('val-light-speed').innerText = val;
+    if (key === 'light_size') document.getElementById('val-light-size').innerText = val;
+    if (key === 'vignette') document.getElementById('val-vignette').innerText = val;
+    if (key === 'grain') document.getElementById('val-grain').innerText = val;
+    if (key === 'bg_blur') document.getElementById('val-bg-blur').innerText = val;
+    if (key === 'bg_skew') document.getElementById('val-bg-skew').innerText = val;
     
     frame = 0;
     render();
