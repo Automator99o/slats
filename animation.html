@@ -177,6 +177,11 @@
     <label>Slat Count <span id="val-bar-count">28</span></label>
     <input type="range" id="slider-bar-count" min="8" max="64" value="28" oninput="updateVal('bar_count', parseInt(this.value))">
   </div>
+
+  <div class="control-group">
+    <label>Slat Gap <span id="val-bar-gap">0%</span></label>
+    <input type="range" id="slider-bar-gap" min="0" max="40" step="1" value="0" oninput="updateSlatGap(parseInt(this.value))">
+  </div>
   
   <div class="control-group">
     <label>Slat Angle <span id="val-bar-angle">45</span>°</label>
@@ -574,22 +579,37 @@
       float slatCoord = rotUV.x * u_bar_count;
       localX = fract(slatCoord);
 
-      // Cylindrical lens refraction offset displacement (from reference)
-      float dispMag = sin((localX - 0.5) * 3.14159) * (u_displacement / res.x);
+      float activeX = localX;
+      float dispMag = 0.0;
+      float gapShadow = 1.0;
+
+      if (localX < u_bar_width) {
+        // Inside active glass slat - rescale coordinate to [0, 1]
+        activeX = localX / u_bar_width;
+        dispMag = sin((activeX - 0.5) * 3.14159) * (u_displacement / res.x);
+      } else {
+        // Inside the gap between glass slats
+        dispMag = 0.0;
+        // Soft darkening gradient inside the gap
+        float gapDist = localX - u_bar_width;
+        float gapMax = 1.0 - u_bar_width;
+        gapShadow = 0.45 + 0.55 * smoothstep(0.0, 0.08, gapDist) * smoothstep(gapMax, gapMax - 0.08, gapDist);
+      }
 
       // Single call to the optimized cross-blur dispersion sample routine
       vec3 bgColor = sampleBlurredBackgroundWithDispersion(uv, refrDir, dispMag, u_glass_blur, evolution, u_mode);
 
-      vec3 pixelColor = bgColor;
+      vec3 pixelColor = bgColor * gapShadow;
 
       if (u_mode != 3) {
-        // Slat shading and shadow edges matching reference perfectly
-        float shadow = smoothstep(0.0, 0.25, localX) * smoothstep(1.0, 0.75, localX);
-        pixelColor *= (0.8 + 0.2 * shadow);
+        // Only apply glass shading and highlights inside the active glass slat area
+        if (localX < u_bar_width) {
+          float shadow = smoothstep(0.0, 0.25, activeX) * smoothstep(1.0, 0.75, activeX);
+          pixelColor *= (0.8 + 0.2 * shadow);
 
-        // Specular highlight line matching reference perfectly
-        float spec = pow(max(0.0, 1.0 - abs(localX - 0.5) * 2.0), 3.0) * u_glass_highlight;
-        pixelColor += vec3(spec);
+          float spec = pow(max(0.0, 1.0 - abs(activeX - 0.5) * 2.0), 3.0) * u_glass_highlight;
+          pixelColor += vec3(spec);
+        }
       }
 
       if (u_capsule_mask > 0.0) {
@@ -909,7 +929,19 @@
     document.getElementById('val-bg-blur').innerText = cfg.bg_blur;
     document.getElementById('slider-bg-skew').value = cfg.bg_skew;
     document.getElementById('val-bg-skew').innerText = cfg.bg_skew;
+
+    // Sync slat gap percentage (bar_width = 1.0 -> 0% gap, 0.8 -> 20% gap)
+    var gapPercent = Math.round((1.0 - (cfg.bar_width || 1.0)) * 100);
+    document.getElementById('slider-bar-gap').value = gapPercent;
+    document.getElementById('val-bar-gap').innerText = gapPercent + '%';
   }
+
+  window.updateSlatGap = function(val) {
+    document.getElementById('val-bar-gap').innerText = val + '%';
+    cfg.bar_width = (100.0 - val) / 100.0;
+    frame = 0;
+    render();
+  };
 
   window.updateVal = function(key, val) {
     cfg[key] = val;
