@@ -854,14 +854,24 @@
     }
   };
 
-  /* ═══════════════════════════════════════════════════════════
-     AUTO-PLAY (browser preview)
-     ═══════════════════════════════════════════════════════════ */
-  function autoPlay(){
+  var lastTime = 0;
+  function autoPlay(timestamp){
     if(controlled) return;
-    render();
-    frame++;
-    if(frame >= total) frame = 0;
+    if (!timestamp) timestamp = performance.now();
+    if (!lastTime) lastTime = timestamp;
+    var delta = timestamp - lastTime;
+    
+    // Throttle rendering speed to strictly match target FPS configuration
+    var frameDuration = 1000.0 / cfg.fps;
+    
+    if (delta >= frameDuration) {
+      var steps = Math.floor(delta / frameDuration);
+      frame += steps;
+      if (frame >= total) frame = 0;
+      render();
+      lastTime = timestamp - (delta % frameDuration);
+    }
+    
     rafId = requestAnimationFrame(autoPlay);
   }
 
