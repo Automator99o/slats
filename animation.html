@@ -470,6 +470,9 @@
         return sampleBackgroundTexture(coord);
       }
 
+      // Calculate scaleFactor relative to default 300px (0.15625 ratio)
+      float scaleFactor = u_light_size / 0.15625;
+
       // Dynamic moving gradient centers matching reference perfectly
       vec2 p1 = vec2(0.5 + 0.22 * cos(t * 0.6), 0.5 + 0.15 * sin(t * 0.5));
       vec2 p2 = vec2(0.46 + 0.18 * sin(t * 0.4), 0.52 + 0.2 * cos(t * 0.7));
@@ -479,10 +482,10 @@
       float d2 = length(coord - p2);
       float d3 = length(coord - p3);
 
-      // Metaball contributions (smoothstep radial ramps)
-      float w1 = smoothstep(0.4, 0.0, d1);
-      float w2 = smoothstep(0.5, 0.0, d2);
-      float w3 = smoothstep(0.35, 0.0, d3);
+      // Metaball contributions scaled dynamically by the Light Beam Size
+      float w1 = smoothstep(0.40 * scaleFactor, 0.0, d1);
+      float w2 = smoothstep(0.50 * scaleFactor, 0.0, d2);
+      float w3 = smoothstep(0.35 * scaleFactor, 0.0, d3);
 
       vec3 col = u_col_purple; // Grounding base fill color
       col += u_col_cyan * w1 * 0.95;
@@ -498,6 +501,10 @@
       vec3 wc3 = u_wave_c3;
       vec3 bg = vec3(0.0, 0.005, 0.08);
 
+      // Calculate scaleFactor relative to default 300px
+      float scaleFactor = u_light_size / 0.15625;
+      float waveThickness = 0.15 * scaleFactor;
+
       for (int k = 0; k < 4; k++) {
         float fk = float(k);
         float phase = t + fk * 1.5708;
@@ -505,7 +512,7 @@
         float dist = abs(coord.y - yVal);
         vec3 gradColor = mix(wc1, wc2, coord.x);
         if (k == 2) gradColor = mix(wc2, wc3, coord.y);
-        float intensity = exp(-dist * dist / (0.15 * 0.15)) * (0.35 + fk * 0.15);
+        float intensity = exp(-dist * dist / (waveThickness * waveThickness)) * (0.35 + fk * 0.15);
         bg += gradColor * intensity;
       }
       return bg;
