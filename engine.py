@@ -19,6 +19,11 @@ import time
 import base64
 from pathlib import Path
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Multi-threaded HTTP server to prevent Playwright renders from blocking GET/POST requests."""
+    daemon_threads = True
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -313,7 +318,7 @@ def main():
     if args.studio:
         port = args.port
         server_address = ('0.0.0.0', port)
-        httpd = HTTPServer(server_address, StudioHTTPRequestHandler)
+        httpd = ThreadingHTTPServer(server_address, StudioHTTPRequestHandler)
         print(f"\n🚀 Nexus Refraction Studio is running at: http://0.0.0.0:{port}")
         print("Press Ctrl+C to stop the studio server.\n")
         try:
