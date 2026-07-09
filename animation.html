@@ -801,7 +801,7 @@
       sizePx = sizePx * w;
     }
     var R_norm = sizePx / w;
-    gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), R_norm * R_norm);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), R_norm);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_speed'), cfg.light_speed);
     gl.uniform1i(gl.getUniformLocation(program, 'u_light_path'), cfg.light_path);
     // Round speed to nearest integer to guarantee a perfect, seamless loop start-to-end
