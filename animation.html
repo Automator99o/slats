@@ -559,9 +559,10 @@
             vec3 texR = sampleBackgroundTexture(sampleUVR);
             vec3 texG = sampleBackgroundTexture(sampleUVG);
             vec3 texB = sampleBackgroundTexture(sampleUVB);
-            rVal = (texR * 0.8 * exp(-dR * dR / u_light_size) + texR * 0.06).r;
-            gVal = (texG * 0.8 * exp(-dG * dG / u_light_size) + texG * 0.06).g;
-            bVal = (texB * 0.8 * exp(-dB * dB / u_light_size) + texB * 0.06).b;
+            // Additive searchlight blend: dims background to 30% and adds bright spotColor scan on top
+            rVal = (texR * 0.30 + spotColor * 0.80 * exp(-dR * dR / u_light_size)).r;
+            gVal = (texG * 0.30 + spotColor * 0.80 * exp(-dG * dG / u_light_size)).g;
+            bVal = (texB * 0.30 + spotColor * 0.80 * exp(-dB * dB / u_light_size)).b;
           } else {
             rVal = (spotColor * 0.8 * exp(-dR * dR / u_light_size) + baseAmb).r;
             gVal = (spotColor * 0.8 * exp(-dG * dG / u_light_size) + baseAmb).g;
