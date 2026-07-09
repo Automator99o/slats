@@ -312,9 +312,9 @@ def main():
     # ── Launch Studio Server if active ──
     if args.studio:
         port = args.port
-        server_address = ('', port)
+        server_address = ('0.0.0.0', port)
         httpd = HTTPServer(server_address, StudioHTTPRequestHandler)
-        print(f"\n🚀 Nexus Refraction Studio is running at: http://localhost:{port}")
+        print(f"\n🚀 Nexus Refraction Studio is running at: http://0.0.0.0:{port}")
         print("Press Ctrl+C to stop the studio server.\n")
         try:
             httpd.serve_forever()
