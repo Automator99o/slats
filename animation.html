@@ -110,6 +110,22 @@
     outline: none;
     cursor: pointer;
   }
+  .checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #e2e8f0;
+    padding: 4px 0;
+  }
+  .checkbox-container input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #17b5b9;
+  }
   
   .upload-btn {
     background: rgba(255, 255, 255, 0.08);
@@ -171,6 +187,13 @@
       <option value="glass_wave">Glass Wave</option>
       <option value="light_reveal">Light Reveal</option>
     </select>
+  </div>
+  
+  <div class="control-group">
+    <label class="checkbox-container">
+      <input type="checkbox" id="check-light-scan" onchange="updateVal('enable_light_scan', this.checked ? 1 : 0)">
+      Enable Light Reveal Sweep
+    </label>
   </div>
 
   <div class="control-group">
@@ -292,6 +315,7 @@
     light_speed: 1.0,
     light_size: 300,
     light_path: 0,
+    enable_light_scan: 0,
 
     /* Fiber optics */
     fiber_count: 1400, fiber_spread: 0.65, fiber_length: 0.68,
@@ -406,6 +430,7 @@
     uniform float u_light_speed;
     uniform float u_speed;
     uniform int u_light_path;
+    uniform int u_enable_light_scan;
 
     // Custom image texture
     uniform bool u_use_texture;
@@ -519,59 +544,58 @@
 
         float rVal, gVal, bVal;
 
+        vec3 colR, colG, colB;
+        
         if (mode == 4) {
           if (u_use_texture) {
-            rVal = sampleBackgroundTexture(sampleUVR).r;
-            gVal = sampleBackgroundTexture(sampleUVG).g;
-            bVal = sampleBackgroundTexture(sampleUVB).b;
+            colR = sampleBackgroundTexture(sampleUVR);
+            colG = sampleBackgroundTexture(sampleUVG);
+            colB = sampleBackgroundTexture(sampleUVB);
           } else {
-            rVal = getWaveBackground(sampleUVR, evolution).r;
-            gVal = getWaveBackground(sampleUVG, evolution).g;
-            bVal = getWaveBackground(sampleUVB, evolution).b;
+            colR = getWaveBackground(sampleUVR, evolution);
+            colG = getWaveBackground(sampleUVG, evolution);
+            colB = getWaveBackground(sampleUVB, evolution);
           }
-        } else if (mode == 2) {
+        } else {
+          if (u_use_texture) {
+            colR = sampleBackgroundTexture(sampleUVR);
+            colG = sampleBackgroundTexture(sampleUVG);
+            colB = sampleBackgroundTexture(sampleUVB);
+          } else {
+            colR = generateBackground(sampleUVR, evolution);
+            colG = generateBackground(sampleUVG, evolution);
+            colB = generateBackground(sampleUVB, evolution);
+          }
+        }
+        
+        rVal = colR.r;
+        gVal = colG.g;
+        bVal = colB.b;
+
+        // Apply light scanning sweep if in Light Reveal mode (2) or if u_enable_light_scan is toggled on
+        if (mode == 2 || u_enable_light_scan == 1) {
           float angle = u_time * 6.283185 * u_light_speed;
           vec2 spotPos = vec2(0.5);
           
-          if (u_light_path == 0) { // Horizontal Sweep
-            spotPos = vec2(0.5 + sin(angle) * 0.38, 0.5);
-          } else if (u_light_path == 1) { // Vertical Sweep
-            spotPos = vec2(0.5, 0.5 + sin(angle) * 0.38);
-          } else if (u_light_path == 2) { // Circular Orbit
-            spotPos = vec2(0.5 + cos(angle) * 0.35, 0.5 + sin(angle) * 0.35);
-          } else if (u_light_path == 3) { // Diagonal Scan
+          if (u_light_path == 0) spotPos = vec2(0.5 + sin(angle) * 0.38, 0.5);
+          else if (u_light_path == 1) spotPos = vec2(0.5, 0.5 + sin(angle) * 0.38);
+          else if (u_light_path == 2) spotPos = vec2(0.5 + cos(angle) * 0.35, 0.5 + sin(angle) * 0.35);
+          else if (u_light_path == 3) {
             float dScan = sin(angle);
             spotPos = vec2(0.5 + dScan * 0.35, 0.5 + dScan * 0.35);
-          } else if (u_light_path == 4) { // Infinity Loop (Figure 8)
-            spotPos = vec2(0.5 + sin(angle) * 0.35, 0.5 + sin(angle * 2.0) * 0.18);
-          } else if (u_light_path == 5) { // Zigzag Wave Sweep
-            spotPos = vec2(0.5 + sin(angle) * 0.38, 0.5 + cos(angle * 4.0) * 0.2);
-          }
-          
+          } else if (u_light_path == 4) spotPos = vec2(0.5 + sin(angle) * 0.35, 0.5 + sin(angle * 2.0) * 0.18);
+          else if (u_light_path == 5) spotPos = vec2(0.5 + sin(angle) * 0.38, 0.5 + cos(angle * 4.0) * 0.2);
+
           float dR = length(sampleUVR - spotPos);
           float dG = length(sampleUVG - spotPos);
           float dB = length(sampleUVB - spotPos);
 
           vec3 spotColor = mix(u_col_cyan, u_col_blue, 0.4);
-          vec3 baseAmb = mix(u_col_amber, u_col_purple, 0.5) * 0.06;
 
-          if (u_use_texture) {
-            vec3 texR = sampleBackgroundTexture(sampleUVR);
-            vec3 texG = sampleBackgroundTexture(sampleUVG);
-            vec3 texB = sampleBackgroundTexture(sampleUVB);
-            // Additive searchlight blend: dims background to 30% and adds bright spotColor scan on top
-            rVal = (texR * 0.30 + spotColor * 0.80 * exp(-dR * dR / u_light_size)).r;
-            gVal = (texG * 0.30 + spotColor * 0.80 * exp(-dG * dG / u_light_size)).g;
-            bVal = (texB * 0.30 + spotColor * 0.80 * exp(-dB * dB / u_light_size)).b;
-          } else {
-            rVal = (spotColor * 0.8 * exp(-dR * dR / u_light_size) + baseAmb).r;
-            gVal = (spotColor * 0.8 * exp(-dG * dG / u_light_size) + baseAmb).g;
-            bVal = (spotColor * 0.8 * exp(-dB * dB / u_light_size) + baseAmb).b;
-          }
-        } else {
-          rVal = generateBackground(sampleUVR, evolution).r;
-          gVal = generateBackground(sampleUVG, evolution).g;
-          bVal = generateBackground(sampleUVB, evolution).b;
+          // Additive blend searchlight effect
+          rVal = (colR * 0.30 + spotColor * 0.80 * exp(-dR * dR / u_light_size)).r;
+          gVal = (colG * 0.30 + spotColor * 0.80 * exp(-dG * dG / u_light_size)).g;
+          bVal = (colB * 0.30 + spotColor * 0.80 * exp(-dB * dB / u_light_size)).b;
         }
 
         total += vec3(rVal, gVal, bVal) * w;
@@ -804,6 +828,7 @@
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), R_norm);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_speed'), cfg.light_speed);
     gl.uniform1i(gl.getUniformLocation(program, 'u_light_path'), cfg.light_path);
+    gl.uniform1i(gl.getUniformLocation(program, 'u_enable_light_scan'), cfg.enable_light_scan ? 1 : 0);
     // Round speed to nearest integer to guarantee a perfect, seamless loop start-to-end
     var loopSpeed = Math.max(1.0, Math.round(cfg.speed || 1.0));
     gl.uniform1f(gl.getUniformLocation(program, 'u_speed'), loopSpeed);
@@ -977,6 +1002,9 @@
 
     // Sync light path select
     document.getElementById('select-light-path').value = cfg.light_path || 0;
+
+    // Sync enable light scan checkbox
+    document.getElementById('check-light-scan').checked = !!cfg.enable_light_scan;
   }
 
   window.updateSlatGap = function(val) {
