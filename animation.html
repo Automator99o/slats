@@ -599,10 +599,27 @@
 
           vec3 spotColor = mix(u_col_cyan, u_col_blue, 0.4);
 
-          // Additive blend searchlight effect
-          rVal = (colR * 0.30 + spotColor * 0.80 * exp(-dR * dR / u_light_size)).r;
-          gVal = (colG * 0.30 + spotColor * 0.80 * exp(-dG * dG / u_light_size)).g;
-          bVal = (colB * 0.30 + spotColor * 0.80 * exp(-dB * dB / u_light_size)).b;
+          float sigma = u_light_size;
+          if (sigma < 0.001) sigma = 0.001;
+
+          float intensityR = exp(- (dR * dR) / (2.0 * sigma * sigma));
+          float intensityG = exp(- (dG * dG) / (2.0 * sigma * sigma));
+          float intensityB = exp(- (dB * dB) / (2.0 * sigma * sigma));
+
+          if (u_use_texture != 0) {
+            // Reveal the actual custom background image colors inside the searchlight beam
+            float factorR = 0.20 + 0.80 * intensityR;
+            float factorG = 0.20 + 0.80 * intensityG;
+            float factorB = 0.20 + 0.80 * intensityB;
+            
+            rVal = colR.r * factorR + spotColor.r * 0.15 * intensityR;
+            gVal = colG.g * factorG + spotColor.g * 0.15 * intensityG;
+            bVal = colB.b * factorB + spotColor.b * 0.15 * intensityB;
+          } else {
+            rVal = (colR * 0.30 + spotColor * 0.80 * intensityR).r;
+            gVal = (colG * 0.30 + spotColor * 0.80 * intensityG).g;
+            bVal = (colB * 0.30 + spotColor * 0.80 * intensityB).b;
+          }
         }
 
         total += vec3(rVal, gVal, bVal) * w;
