@@ -46,6 +46,27 @@
     box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
     color: #f3f4f6;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(23, 181, 185, 0.4) transparent;
+  }
+  
+  .control-group input[type="color"] {
+    -webkit-appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    width: 100%;
+    height: 36px;
+    cursor: pointer;
+    background: none;
+    padding: 2px 4px;
+  }
+  .control-group input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .control-group input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 6px;
   }
   
   .header {
@@ -251,6 +272,39 @@
       <option value="4">Infinity Loop (8)</option>
       <option value="5">Zigzag Wave</option>
     </select>
+  </div>
+
+  <div class="control-group">
+    <label>Color Combo Preset</label>
+    <select id="select-color-preset" onchange="applyColorPreset(this.value)">
+      <option value="custom">Custom Palette</option>
+      <option value="cyan_blue" selected>Electric Cyan & Blue</option>
+      <option value="sunset">Sunset Amber & Purple</option>
+      <option value="emerald">Emerald & Gold</option>
+      <option value="neon_pink">Neon Pink & Purple</option>
+      <option value="monochrome">Monochrome Silver & Ice</option>
+      <option value="ruby">Crimson & Deep Ruby</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label>Color 1 (Primary Light)</label>
+    <input type="color" id="picker-color-cyan" value="#06b6d4" oninput="updateColor('color_cyan', this.value)">
+  </div>
+
+  <div class="control-group">
+    <label>Color 2 (Secondary Light)</label>
+    <input type="color" id="picker-color-blue" value="#2563eb" oninput="updateColor('color_blue', this.value)">
+  </div>
+
+  <div class="control-group">
+    <label>Color 3 (Accent Light)</label>
+    <input type="color" id="picker-color-amber" value="#f59e0b" oninput="updateColor('color_amber', this.value)">
+  </div>
+
+  <div class="control-group">
+    <label>Color 4 (Ambient / Base)</label>
+    <input type="color" id="picker-color-purple" value="#581c87" oninput="updateColor('color_purple', this.value)">
   </div>
 
   <div class="control-group">
@@ -707,9 +761,9 @@
         pixelColor = mix(pixelColor * mix(1.0, 0.02, u_vignette), pixelColor, vig);
       }
 
-      // Controllable Film Grain Overlay Layer
+      // Controllable Static Film Grain Layer
       if (u_grain > 0.0) {
-        vec2 grainSeed = (uv + vec2(sin(u_time * 73.1), cos(u_time * 91.7))) * u_resolution;
+        vec2 grainSeed = uv * u_resolution;
         float grainNoise = fract(sin(dot(grainSeed, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
         pixelColor += vec3(grainNoise * u_grain);
         pixelColor = clamp(pixelColor, 0.0, 1.0);
@@ -1055,7 +1109,64 @@
 
     // Sync enable light scan checkbox
     document.getElementById('check-light-scan').checked = !!cfg.enable_light_scan;
+
+    // Sync color pickers
+    if (document.getElementById('picker-color-cyan'))   document.getElementById('picker-color-cyan').value   = cfg.color_cyan   || '#06b6d4';
+    if (document.getElementById('picker-color-blue'))   document.getElementById('picker-color-blue').value   = cfg.color_blue   || '#2563eb';
+    if (document.getElementById('picker-color-amber'))  document.getElementById('picker-color-amber').value  = cfg.color_amber  || '#f59e0b';
+    if (document.getElementById('picker-color-purple')) document.getElementById('picker-color-purple').value = cfg.color_purple || '#581c87';
   }
+
+  window.updateColor = function(key, val) {
+    cfg[key] = val;
+    // Clear CSV overrides so user color pickers take immediate effect
+    cfg.glass_color1 = ''; cfg.glass_color2 = '';
+    cfg.bg_color1 = '';    cfg.bg_color2 = '';
+    cfg.light_color1 = ''; cfg.light_color2 = '';
+    cfg.wave_color1 = cfg.color_purple;
+    cfg.wave_color2 = cfg.color_cyan;
+    cfg.wave_color3 = cfg.color_amber;
+
+    var presetSelect = document.getElementById('select-color-preset');
+    if (presetSelect) presetSelect.value = 'custom';
+
+    frame = 0;
+    render();
+  };
+
+  window.applyColorPreset = function(presetKey) {
+    var presets = {
+      cyan_blue:  { color_cyan: '#06b6d4', color_blue: '#2563eb', color_amber: '#f59e0b', color_purple: '#581c87' },
+      sunset:     { color_cyan: '#ff5e36', color_blue: '#e11d48', color_amber: '#ffb800', color_purple: '#3b0764' },
+      emerald:    { color_cyan: '#10b981', color_blue: '#047857', color_amber: '#f59e0b', color_purple: '#064e3b' },
+      neon_pink:  { color_cyan: '#ec4899', color_blue: '#8b5cf6', color_amber: '#06b6d4', color_purple: '#4c1d95' },
+      monochrome: { color_cyan: '#94a3b8', color_blue: '#475569', color_amber: '#cbd5e1', color_purple: '#0f172a' },
+      ruby:       { color_cyan: '#dc2626', color_blue: '#991b1b', color_amber: '#fbbf24', color_purple: '#450a0a' }
+    };
+    var p = presets[presetKey];
+    if (!p) return;
+
+    cfg.color_cyan   = p.color_cyan;
+    cfg.color_blue   = p.color_blue;
+    cfg.color_amber  = p.color_amber;
+    cfg.color_purple = p.color_purple;
+
+    // Clear CSV overrides
+    cfg.glass_color1 = ''; cfg.glass_color2 = '';
+    cfg.bg_color1 = '';    cfg.bg_color2 = '';
+    cfg.light_color1 = ''; cfg.light_color2 = '';
+    cfg.wave_color1 = p.color_purple;
+    cfg.wave_color2 = p.color_cyan;
+    cfg.wave_color3 = p.color_amber;
+
+    if (document.getElementById('picker-color-cyan'))   document.getElementById('picker-color-cyan').value   = p.color_cyan;
+    if (document.getElementById('picker-color-blue'))   document.getElementById('picker-color-blue').value   = p.color_blue;
+    if (document.getElementById('picker-color-amber'))  document.getElementById('picker-color-amber').value  = p.color_amber;
+    if (document.getElementById('picker-color-purple')) document.getElementById('picker-color-purple').value = p.color_purple;
+
+    frame = 0;
+    render();
+  };
 
   window.updateSlatGap = function(val) {
     document.getElementById('val-bar-gap').innerText = val + '%';
