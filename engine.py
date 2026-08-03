@@ -121,11 +121,10 @@ def build_ffmpeg_cmd(frames_dir: str, output_path: str, fps: int, fmt: str,
             "-colorspace", "bt709",
         ])
     elif fmt == "mov":
-        # ProRes 422 HQ — no bitrate limit for maximum quality
+        # ProRes 422 HQ — official Apple target specification (~700-800 Mbps for 4K)
         cmd.extend([
             "-c:v", "prores_ks",
             "-profile:v", "3",          # 3 = ProRes 422 HQ
-            "-qscale:v", "9",           # High quality, no bitrate ceiling
             "-vendor", "apl0",          # Apple vendor tag for best compatibility
             "-pix_fmt", "yuv422p10le",  # 10-bit 4:2:2
             "-color_primaries", "bt709",
