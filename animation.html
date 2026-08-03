@@ -427,6 +427,7 @@
 
     // Post FX
     uniform float u_vignette;
+    uniform float u_grain;
     uniform float u_light_size;
     uniform float u_light_speed;
     uniform float u_speed;
@@ -704,6 +705,14 @@
         float innerRad = mix(0.85, 0.15, u_vignette);
         float vig = smoothstep(0.85, innerRad, vignetteDist);
         pixelColor = mix(pixelColor * mix(1.0, 0.02, u_vignette), pixelColor, vig);
+      }
+
+      // Controllable Film Grain Overlay Layer
+      if (u_grain > 0.0) {
+        vec2 grainSeed = (uv + vec2(sin(u_time * 73.1), cos(u_time * 91.7))) * u_resolution;
+        float grainNoise = fract(sin(dot(grainSeed, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+        pixelColor += vec3(grainNoise * u_grain);
+        pixelColor = clamp(pixelColor, 0.0, 1.0);
       }
 
       gl_FragColor = vec4(pixelColor, 1.0);
