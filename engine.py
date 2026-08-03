@@ -90,8 +90,10 @@ def build_config(row: dict) -> dict:
     return config
 
 
-def build_ffmpeg_cmd(frames_dir: str, output_path: str, fps: int, fmt: str) -> list:
-    """Build the FFmpeg command with FIXED bitrate settings."""
+def build_ffmpeg_cmd(frames_dir: str, output_path: str, fps: int, fmt: str,
+                     output_width: int = 0, output_height: int = 0) -> list:
+    """Build the FFmpeg command. MOV uses ProRes 422 HQ with no bitrate limit.
+    If output_width/output_height are set, upscale frames to that resolution with Lanczos."""
     inp = os.path.join(frames_dir, "frame_%05d.png")
     cmd = [
         "ffmpeg", "-y",
@@ -99,6 +101,10 @@ def build_ffmpeg_cmd(frames_dir: str, output_path: str, fps: int, fmt: str) -> l
         "-start_number", "1",
         "-i", inp,
     ]
+
+    # Upscale filter: capture at 2K, output at 4K using high-quality Lanczos
+    if output_width > 0 and output_height > 0:
+        cmd.extend(["-vf", f"scale={output_width}:{output_height}:flags=lanczos"])
 
     if fmt == "mp4":
         cmd.extend([
@@ -115,12 +121,16 @@ def build_ffmpeg_cmd(frames_dir: str, output_path: str, fps: int, fmt: str) -> l
             "-colorspace", "bt709",
         ])
     elif fmt == "mov":
+        # ProRes 422 HQ — no bitrate limit for maximum quality
         cmd.extend([
             "-c:v", "prores_ks",
-            "-profile:v", "3",
-            "-b:v", "45M",
-            "-pix_fmt", "yuv422p10le",
-            "-movflags", "+faststart",
+            "-profile:v", "3",          # 3 = ProRes 422 HQ
+            "-qscale:v", "9",           # High quality, no bitrate ceiling
+            "-vendor", "apl0",          # Apple vendor tag for best compatibility
+            "-pix_fmt", "yuv422p10le",  # 10-bit 4:2:2
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
+            "-colorspace", "bt709",
         ])
 
     cmd.append(output_path)
@@ -183,25 +193,31 @@ class StudioHTTPRequestHandler(SimpleHTTPRequestHandler):
                 img_data = base64.b64decode(bg_image_base64)
                 
                 os.makedirs("./tmp", exist_ok=True)
-                bg_path = "./tmp/studio_upload.png"
+                bg_path = os.path.abspath("./tmp/studio_upload.png")
                 with open(bg_path, "wb") as f:
                     f.write(img_data)
                 
-                config["bg_image_url"] = "tmp/studio_upload.png"
+                # Use absolute file:// URI so Playwright's headless browser can always find it
+                config["bg_image_url"] = Path(bg_path).as_uri()
+                print(f"  ▸ Background image saved: {bg_path}")
             else:
                 config["bg_image_url"] = ""
 
-            # Standardize render specs to 4K H.264 @ 100 Mbps
-            config["width"] = 3840
-            config["height"] = 2160
+            # Capture at 2K (1920×1080) for speed, FFmpeg upscales to 4K output
+            config["width"] = 1920
+            config["height"] = 1080
             config["fps"] = 30
             config["duration"] = 10.0
             
+            # Final output resolution for FFmpeg upscale
+            config["_output_width"] = 3840
+            config["_output_height"] = 2160
+            
             clip_id = "studio_render_" + str(int(time.time()))
-            output_file = os.path.join("./output", f"{clip_id}.mp4")
+            output_file = os.path.join("./output", f"{clip_id}.mov")
             os.makedirs("./output", exist_ok=True)
             
-            print(f"\n[Studio] Starting 4K render for: {clip_id}")
+            print(f"\n[Studio] Capturing at 2K → Upscaling to 4K MOV ProRes 422 HQ: {clip_id}")
             
             from playwright.sync_api import sync_playwright
             try:
@@ -213,16 +229,20 @@ class StudioHTTPRequestHandler(SimpleHTTPRequestHandler):
                     page = browser.new_page()
                     html_path = os.path.abspath("animation.html")
                     
-                    ok = render_clip(page, config, clip_id, output_file, "mp4", html_path)
+                    ok = render_clip(page, config, clip_id, output_file, "mov", html_path)
                     browser.close()
                 
                 if ok:
+                    file_size_mb = os.path.getsize(output_file) / (1024 * 1024)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(json.dumps({
                         "status": "success",
-                        "file": output_file
+                        "file": output_file,
+                        "size_mb": round(file_size_mb, 1),
+                        "codec": "ProRes 422 HQ",
+                        "resolution": "3840x2160"
                     }).encode('utf-8'))
                 else:
                     self.send_response(500)
@@ -249,17 +269,28 @@ class StudioHTTPRequestHandler(SimpleHTTPRequestHandler):
 #  RENDER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def render_clip(page, config: dict, clip_id: str, output_path: str, fmt: str, html_path: str) -> bool:
-    """Render a single clip: capture frames → FFmpeg → cleanup."""
+    """Render a single clip: capture frames at capture res → FFmpeg upscale to output res → cleanup."""
     frames_dir = os.path.join(FRAMES_BASE, clip_id)
     os.makedirs(frames_dir, exist_ok=True)
+
+    # Separate capture resolution (browser) from final output resolution (FFmpeg)
+    capture_w = config["width"]
+    capture_h = config["height"]
+    output_w = config.pop("_output_width", 0)
+    output_h = config.pop("_output_height", 0)
+
+    if output_w > 0:
+        print(f"  ▸ Capture: {capture_w}×{capture_h}  →  Output: {output_w}×{output_h} (Lanczos upscale)")
+    else:
+        print(f"  ▸ Resolution: {capture_w}×{capture_h}")
 
     # Navigate & inject config
     page.goto(Path(html_path).as_uri(), wait_until="domcontentloaded")
     page.evaluate(f"window.resetRenderer({json.dumps(config)})")
     page.wait_for_function("window.animationReady === true", timeout=15000)
 
-    # Viewport must match canvas
-    page.set_viewport_size({"width": config["width"], "height": config["height"]})
+    # Viewport must match capture canvas dimensions
+    page.set_viewport_size({"width": capture_w, "height": capture_h})
 
     # Total frames
     progress = page.evaluate("window.getProgress()")
@@ -279,9 +310,13 @@ def render_clip(page, config: dict, clip_id: str, output_path: str, fmt: str, ht
 
     print()
 
-    # Assemble video with FFmpeg
-    print(f"  ▸ Assembling {fmt.upper()} with FFmpeg …")
-    cmd = build_ffmpeg_cmd(frames_dir, output_path, config["fps"], fmt)
+    # Assemble video with FFmpeg (upscale to output resolution if specified)
+    if output_w > 0:
+        print(f"  ▸ Assembling {fmt.upper()} with FFmpeg + Lanczos upscale to {output_w}×{output_h} …")
+    else:
+        print(f"  ▸ Assembling {fmt.upper()} with FFmpeg …")
+    cmd = build_ffmpeg_cmd(frames_dir, output_path, config["fps"], fmt,
+                           output_width=output_w, output_height=output_h)
     proc = subprocess.run(cmd, capture_output=True, text=True)
 
     if proc.returncode != 0:
@@ -292,7 +327,8 @@ def render_clip(page, config: dict, clip_id: str, output_path: str, fmt: str, ht
     shutil.rmtree(frames_dir, ignore_errors=True)
 
     file_size = os.path.getsize(output_path) / (1024 * 1024)
-    print(f"  ✓ Saved: {output_path}  ({file_size:.1f} MB)")
+    final_res = f"{output_w}×{output_h}" if output_w > 0 else f"{capture_w}×{capture_h}"
+    print(f"  ✓ Saved: {output_path}  ({file_size:.1f} MB, {final_res})")
     return True
 
 
@@ -301,33 +337,42 @@ def render_clip(page, config: dict, clip_id: str, output_path: str, fmt: str, ht
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def main():
     parser = argparse.ArgumentParser(
-        description="Batch render animation clips for Adobe Stock"
+        description="Nexus Refraction Studio — Interactive render engine with frontend UI"
     )
-    parser.add_argument("--batch", default="batch.csv", help="Path to CSV file (default: batch.csv)")
+    parser.add_argument("--port", type=int, default=5100, help="Server port (default: 5100)")
+    parser.add_argument("--batch-render", action="store_true", dest="batch_render",
+                        help="Run bulk batch render from CSV instead of launching the studio frontend")
+    parser.add_argument("--batch", default="batch.csv", help="Path to CSV file for batch mode (default: batch.csv)")
     parser.add_argument("--output", default="./output", help="Output folder (default: ./output)")
-    parser.add_argument("--preview", action="store_true", help="Open browser preview before rendering")
+    parser.add_argument("--preview", action="store_true", help="Open browser preview before batch rendering")
     parser.add_argument("--start-from", type=int, default=0, dest="start_from",
-                        help="Skip the first N rows (resume support)")
-    parser.add_argument("--format", choices=["mp4", "mov"], default=None,
-                        help="Output format: mp4 or mov (prompts if omitted)")
-    parser.add_argument("--studio", action="store_true", help="Launch the interactive Refraction Studio server")
-    parser.add_argument("--port", type=int, default=5100, help="Server port for studio mode (default: 5100)")
+                        help="Skip the first N rows in batch mode (resume support)")
+    parser.add_argument("--format", choices=["mp4", "mov"], default="mov",
+                        help="Output format for batch mode (default: mov)")
+    # Keep --studio as a no-op alias for backwards compatibility
+    parser.add_argument("--studio", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    # ── Launch Studio Server if active ──
-    if args.studio:
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #  DEFAULT: Launch the Studio Frontend Server
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if not args.batch_render:
         port = args.port
         server_address = ('0.0.0.0', port)
         httpd = ThreadingHTTPServer(server_address, StudioHTTPRequestHandler)
         print(f"\n🚀 Nexus Refraction Studio is running at: http://0.0.0.0:{port}")
-        print("Press Ctrl+C to stop the studio server.\n")
+        print(f"   Renders: MOV ProRes 422 HQ · 4K (3840×2160) · No bitrate limit")
+        print(f"   Use the frontend UI to configure and trigger renders.")
+        print(f"\n   Press Ctrl+C to stop the server.\n")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\nShutting down server.")
         sys.exit(0)
 
-    # ── Read batch CSV ──
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #  OPTIONAL: Batch render mode (only with --batch-render)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     batch_path = os.path.abspath(args.batch)
     if not os.path.exists(batch_path):
         print(f"✗ Batch file not found: {batch_path}")
@@ -342,22 +387,7 @@ def main():
 
     print(f"  Loaded {len(rows)} clips from {batch_path}")
 
-    # ── Determine format ──
     fmt = args.format
-    if fmt is None:
-        try:
-            while True:
-                choice = input("\n  Output format — (1) MP4  or  (2) MOV/ProRes?  [1]: ").strip()
-                if choice in ("", "1", "mp4"):
-                    fmt = "mp4"
-                    break
-                elif choice in ("2", "mov"):
-                    fmt = "mov"
-                    break
-                print("  Please enter 1 or 2.")
-        except EOFError:
-            print("  ▸ Non-interactive environment detected: Defaulting format to MP4")
-            fmt = "mp4"
 
     # ── Output directory ──
     out_dir = os.path.abspath(args.output)

@@ -3,7 +3,7 @@ version: "3.8"
 services:
   renderer:
     build: .
-    command: ["--studio", "--port", "5100"]
+    command: ["--port", "5100"]
     volumes:
       - ./output:/app/output           # rendered videos go here
       - ./batch.csv:/app/batch.csv     # hot-swap without rebuild
@@ -23,22 +23,23 @@ services:
 # USAGE EXAMPLES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
-# Build & render full batch as MP4:
+# Launch the frontend studio (DEFAULT):
 #   docker compose up --build
 #
-# Preview first clip in browser before rendering:
-#   docker compose run renderer python engine.py --preview
+# Bulk batch render from CSV as MOV (opt-in):
+#   docker compose run renderer python engine.py --batch-render
 #
-# Resume from clip 10:
-#   docker compose run renderer python engine.py --start-from 10
+# Batch render as MP4 instead:
+#   docker compose run renderer python engine.py --batch-render --format mp4
 #
-# Render as MOV (ProRes):
-#   docker compose run renderer python engine.py --format mov
+# Resume batch from clip 10:
+#   docker compose run renderer python engine.py --batch-render --start-from 10
 #
-# Render specific batch file:
-#   docker compose run renderer python engine.py --batch batch.csv --format mp4
+# Preview first clip in browser before batch rendering:
+#   docker compose run renderer python engine.py --batch-render --preview
 #
 # Rebuild after editing animation.html or engine.py:
 #   docker compose build --no-cache
 #
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

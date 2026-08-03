@@ -280,7 +280,7 @@
   </div>
 
   <div class="control-group" style="margin-top:auto">
-    <button id="render-btn" class="render-btn" onclick="triggerRender()">Render Video (4K)</button>
+    <button id="render-btn" class="render-btn" onclick="triggerRender()">Render MOV 422HQ (4K)</button>
   </div>
 </div>
 
@@ -340,7 +340,8 @@
     bg_color2: '',
     light_color1: '',
     light_color2: '',
-    bg_style: ''
+    bg_style: '',
+    bg_image_url: ''
   };
 
   /* ═══════════════════════════════════════════════════════════
@@ -867,6 +868,8 @@
   function mc(src){
     var o={};var k=Object.keys(DEF);
     for(var i=0;i<k.length;i++) o[k[i]]=(src&&src[k[i]]!==undefined)?src[k[i]]:DEF[k[i]];
+    // Also copy any extra keys from src that aren't in DEF (e.g. bg_image_url)
+    if(src){ var sk=Object.keys(src); for(var j=0;j<sk.length;j++){ if(o[sk[j]]===undefined) o[sk[j]]=src[sk[j]]; }}
     return o;
   }
 
@@ -941,12 +944,22 @@
     window.animationReady = false;
 
     if (cfg.bg_image_url) {
+      console.log('[resetRenderer] Loading bg_image_url:', cfg.bg_image_url);
       var img = new Image();
       if (cfg.bg_image_url.indexOf("http") === 0) {
         img.crossOrigin = "anonymous";
       }
       img.onload = function() {
+        console.log('[resetRenderer] Background image loaded successfully:', img.width, 'x', img.height);
         updateBgTexture(img);
+        render();
+        window.animationReady = true;
+        window.renderComplete = false;
+      };
+      img.onerror = function(err) {
+        console.error('[resetRenderer] Failed to load background image:', cfg.bg_image_url, err);
+        // Fall back to procedural background
+        useBgTexture = false;
         render();
         window.animationReady = true;
         window.renderComplete = false;
@@ -1080,7 +1093,7 @@
 
   window.triggerRender = function() {
     var btn = document.getElementById('render-btn');
-    btn.innerText = "Rendering Video (4K) ...";
+    btn.innerText = "Rendering MOV 422HQ (4K) ...";
     btn.disabled = true;
 
     // Send active configuration settings & uploaded base64 background image
@@ -1099,7 +1112,7 @@
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.status === "success") {
-        alert("Success! 4K video rendered:\n" + data.file);
+        alert("Success! 4K MOV ProRes 422 HQ rendered:\n" + data.file + "\nSize: " + data.size_mb + " MB");
       } else {
         alert("Render Error: " + data.message);
       }
@@ -1109,7 +1122,7 @@
       alert("HTTP connection error: " + err);
     })
     .finally(function() {
-      btn.innerText = "Render Video (4K)";
+      btn.innerText = "Render MOV 422HQ (4K)";
       btn.disabled = false;
     });
   };
