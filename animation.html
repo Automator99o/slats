@@ -258,6 +258,11 @@
   </div>
 
   <div class="control-group">
+    <label>Light Beam Intensity <span id="val-light-intensity">1.0</span></label>
+    <input type="range" id="slider-light-intensity" min="0.0" max="3.0" step="0.1" value="1.0" oninput="updateVal('light_intensity', parseFloat(this.value))">
+  </div>
+
+  <div class="control-group">
     <label>Light Beam Size <span id="val-light-size">300</span>px</label>
     <input type="range" id="slider-light-size" min="50" max="1200" step="10" value="300" oninput="updateVal('light_size', parseInt(this.value))">
   </div>
@@ -318,6 +323,24 @@
   </div>
 
   <div class="control-group">
+    <label>Background Fill Mode</label>
+    <select id="select-bg-style" onchange="updateVal('bg_style', parseInt(this.value))">
+      <option value="0" selected>Dynamic Light Orbs + Gradient</option>
+      <option value="1">Custom Dual-Color Gradient</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label>Bg Gradient Color 1 (Start)</label>
+    <input type="color" id="picker-bg-color1" value="#0a0f24" oninput="updateVal('bg_color1', this.value)">
+  </div>
+
+  <div class="control-group">
+    <label>Bg Gradient Color 2 (End)</label>
+    <input type="color" id="picker-bg-color2" value="#1e1b4b" oninput="updateVal('bg_color2', this.value)">
+  </div>
+
+  <div class="control-group">
     <label>Bg Image Blur <span id="val-bg-blur">0</span></label>
     <input type="range" id="slider-bg-blur" min="0" max="25" step="1" value="0" oninput="updateVal('bg_blur', parseInt(this.value))">
   </div>
@@ -368,8 +391,9 @@
     /* Light speed & size */
     light_speed: 1.0,
     light_size: 300,
+    light_intensity: 1.0,
     light_path: 0,
-    enable_light_scan: 0,
+    enable_light_scan: 1,
 
     /* Fiber optics */
     fiber_count: 1400, fiber_spread: 0.65, fiber_length: 0.68,
@@ -473,6 +497,11 @@
     uniform vec3 u_col_amber;
     uniform vec3 u_col_purple;
 
+    // Dedicated Background Gradient Colors
+    uniform vec3 u_bg_col1;
+    uniform vec3 u_bg_col2;
+    uniform int u_bg_style;
+
     // Wave Mode Colors
     uniform vec3 u_wave_c1;
     uniform vec3 u_wave_c2;
@@ -484,6 +513,7 @@
     uniform float u_grain;
     uniform float u_light_size;
     uniform float u_light_speed;
+    uniform float u_light_intensity;
     uniform float u_speed;
     uniform int u_light_path;
     uniform int u_enable_light_scan;
@@ -520,15 +550,24 @@
       return col;
     }
 
-    // Smooth background light generation (Metaballs & Skewed Gradient matching reference)
+    // Smooth background light generation with separate dedicated Background Gradient controls
     vec3 generateBackground(vec2 coord, float t) {
       if (u_use_texture != 0) {
         return sampleBackgroundTexture(coord);
       }
 
-      // Apply skew transformation centered at (0.5, 0.5) to procedural background
+      // Apply skew transformation centered at (0.5, 0.5) to background
       vec2 c = coord;
       c.x = (coord.x - 0.5) + (coord.y - 0.5) * u_bg_skew + 0.5;
+
+      // Dedicated Background Gradient interpolating between u_bg_col1 and u_bg_col2
+      float gradPos = clamp(c.x * 0.6 + c.y * 0.4, 0.0, 1.0);
+      vec3 gradBg = mix(u_bg_col1, u_bg_col2, gradPos);
+
+      if (u_bg_style == 1) {
+        // Dual-color gradient background mode
+        return gradBg;
+      }
 
       // Calculate scaleFactor relative to default 300px (0.15625 ratio)
       float scaleFactor = u_light_size / 0.15625;
@@ -547,14 +586,10 @@
       float w2 = smoothstep(0.50 * scaleFactor, 0.0, d2);
       float w3 = smoothstep(0.35 * scaleFactor, 0.0, d3);
 
-      // Smooth skewed linear gradient background layer
-      float gradPos = clamp(c.x * 0.6 + c.y * 0.4, 0.0, 1.0);
-      vec3 gradBg = mix(u_col_purple, mix(u_col_blue, u_col_cyan, gradPos), gradPos);
-
-      vec3 col = gradBg; // Grounding base fill color with skewed gradient
-      col += u_col_cyan * w1 * 0.95;
-      col += u_col_blue * w2 * 0.90;
-      col += u_col_amber * w3 * 0.85;
+      vec3 col = gradBg; // Grounding base fill color with separate dedicated background gradient
+      col += u_col_cyan * w1 * 0.95 * u_light_intensity;
+      col += u_col_blue * w2 * 0.90 * u_light_intensity;
+      col += u_col_amber * w3 * 0.85 * u_light_intensity;
 
       return clamp(col, 0.0, 1.0);
     }
@@ -674,9 +709,9 @@
           float sigma = u_light_size;
           if (sigma < 0.001) sigma = 0.001;
 
-          float intensityR = exp(- (dR * dR) / (2.0 * sigma * sigma));
-          float intensityG = exp(- (dG * dG) / (2.0 * sigma * sigma));
-          float intensityB = exp(- (dB * dB) / (2.0 * sigma * sigma));
+          float intensityR = exp(- (dR * dR) / (2.0 * sigma * sigma)) * u_light_intensity;
+          float intensityG = exp(- (dG * dG) / (2.0 * sigma * sigma)) * u_light_intensity;
+          float intensityB = exp(- (dB * dB) / (2.0 * sigma * sigma)) * u_light_intensity;
 
           if (u_use_texture != 0) {
             // Reveal the actual custom background image colors inside the searchlight beam
@@ -925,6 +960,11 @@
     setUniformColor('u_wave_c3', cfg.wave_color3);
     gl.uniform1f(gl.getUniformLocation(program, 'u_wave_intensity'), cfg.wave_intensity);
 
+    // Dedicated Background Gradient Colors
+    setUniformColor('u_bg_col1', cfg.bg_color1 || '#0a0f24');
+    setUniformColor('u_bg_col2', cfg.bg_color2 || '#1e1b4b');
+    gl.uniform1i(gl.getUniformLocation(program, 'u_bg_style'), parseInt(cfg.bg_style || 0));
+
     // Dynamics & FX
     gl.uniform1f(gl.getUniformLocation(program, 'u_vignette'), cfg.vignette);
     gl.uniform1f(gl.getUniformLocation(program, 'u_grain'), cfg.grain);
@@ -935,6 +975,7 @@
     var R_norm = sizePx / w;
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_size'), R_norm);
     gl.uniform1f(gl.getUniformLocation(program, 'u_light_speed'), cfg.light_speed);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_light_intensity'), cfg.light_intensity !== undefined ? cfg.light_intensity : 1.0);
     gl.uniform1i(gl.getUniformLocation(program, 'u_light_path'), cfg.light_path);
     gl.uniform1i(gl.getUniformLocation(program, 'u_enable_light_scan'), cfg.enable_light_scan ? 1 : 0);
     // Round speed to nearest integer to guarantee a perfect, seamless loop start-to-end
@@ -1131,6 +1172,16 @@
     if (document.getElementById('picker-color-blue'))   document.getElementById('picker-color-blue').value   = cfg.color_blue   || '#2563eb';
     if (document.getElementById('picker-color-amber'))  document.getElementById('picker-color-amber').value  = cfg.color_amber  || '#f59e0b';
     if (document.getElementById('picker-color-purple')) document.getElementById('picker-color-purple').value = cfg.color_purple || '#581c87';
+
+    // Sync light intensity & dedicated bg controls
+    if (document.getElementById('slider-light-intensity')) {
+      var syncIntensity = cfg.light_intensity !== undefined ? cfg.light_intensity : 1.0;
+      document.getElementById('slider-light-intensity').value = syncIntensity;
+      document.getElementById('val-light-intensity').innerText = syncIntensity;
+    }
+    if (document.getElementById('picker-bg-color1')) document.getElementById('picker-bg-color1').value = cfg.bg_color1 || '#0a0f24';
+    if (document.getElementById('picker-bg-color2')) document.getElementById('picker-bg-color2').value = cfg.bg_color2 || '#1e1b4b';
+    if (document.getElementById('select-bg-style'))  document.getElementById('select-bg-style').value  = cfg.bg_style  || 0;
   }
 
   window.updateColor = function(key, val) {
@@ -1204,6 +1255,7 @@
     // Label updates for new variables
     if (key === 'speed') document.getElementById('val-speed').innerText = val;
     if (key === 'light_speed') document.getElementById('val-light-speed').innerText = val;
+    if (key === 'light_intensity') document.getElementById('val-light-intensity').innerText = val;
     if (key === 'light_size') document.getElementById('val-light-size').innerText = val;
     if (key === 'vignette') document.getElementById('val-vignette').innerText = val;
     if (key === 'grain') document.getElementById('val-grain').innerText = val;
